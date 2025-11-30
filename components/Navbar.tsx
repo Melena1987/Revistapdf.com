@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { BookOpen, PlusCircle, LogOut, LogIn } from 'lucide-react';
-import { useAuth } from '../src/store/auth-context';
+import { useAuth } from '../store/auth-context';
 
 interface NavbarProps {
   onUploadClick: () => void;

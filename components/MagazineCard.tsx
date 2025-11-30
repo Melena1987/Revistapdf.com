@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { FileText, MoreVertical, Eye, Share2, Edit2, Trash2 } from 'lucide-react';
 import { Magazine } from '../types';
-import { useAuth } from '../src/store/auth-context';
+import { useAuth } from '../store/auth-context';
 
 interface MagazineCardProps {
   magazine: Magazine;

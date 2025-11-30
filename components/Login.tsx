@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useAuth } from '../src/store/auth-context';
+import { useAuth } from '../store/auth-context';
 import { BookOpen, AlertCircle, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 

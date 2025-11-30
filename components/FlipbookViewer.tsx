@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { getPdfDocument } from '../services/pdf';
 import { Magazine } from '../types';
 import { PDFPage } from './PDFPage';
-import { useAuth } from '../src/store/auth-context';
+import { useAuth } from '../store/auth-context';
 
 interface FlipbookViewerProps {
   magazine: Magazine;

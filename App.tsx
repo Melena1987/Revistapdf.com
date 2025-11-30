@@ -3,7 +3,7 @@ import { HashRouter as Router, Routes, Route, useParams, useNavigate, Navigate }
 import { Loader2 } from 'lucide-react';
 
 import { AppProvider, useAppStore } from './store/context';
-import { AuthProvider, useAuth } from './src/store/auth-context';
+import { AuthProvider, useAuth } from './store/auth-context';
 import Navbar from './components/Navbar';
 import UploadModal from './components/UploadModal';
 import FlipbookViewer from './components/FlipbookViewer';
