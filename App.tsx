@@ -83,18 +83,9 @@ const Dashboard: React.FC = () => {
         <Navbar onUploadClick={handleOpenUpload} />
         
         <div className="container mx-auto px-4 py-8">
-        {/* Hero Section */}
-        <div className="mb-12 text-center">
-            <h1 className="text-4xl md:text-5xl font-bold mb-4 bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">
-            Tus Revistas Digitales
-            </h1>
-            <p className="text-gray-400 text-lg max-w-2xl mx-auto">
-            Convierte documentos PDF en experiencias de lectura inmersivas. Comparte con el mundo mediante enlaces cortos inteligentes.
-            </p>
-        </div>
-
-        {/* Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
+        
+        {/* Grid: Increased columns to make cards smaller (grid-cols-2 up to grid-cols-5) */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             {magazines.map((mag) => (
                 <MagazineCard 
                     key={mag.id} 
