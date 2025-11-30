@@ -20,17 +20,26 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
-  // Estado de navegación: Usamos 'currentPage' (1-based) como referencia principal
+  // Estado de navegación
   const [currentPage, setCurrentPage] = useState(1);
   const [zoom, setZoom] = useState(1);
-  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+  
+  // Dimensiones calculadas para ambos layouts (Single y Double)
+  const [layoutDims, setLayoutDims] = useState({ 
+      singleWidth: 0, 
+      doubleWidth: 0, 
+      height: 0 
+  });
   const [isMobile, setIsMobile] = useState(false);
   
-  // Ref movida al contenedor principal que siempre existe para asegurar medición correcta
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Helper to determine if we are in single view mode (Mobile OR Single Page Document)
-  const showSingleView = isMobile || (totalPages === 1);
+  // Determinamos si debemos usar la vista centrada (Single View)
+  // 1. Es Móvil
+  // 2. El documento solo tiene 1 página
+  // 3. Estamos en la página 1 (Portada), incluso si hay más páginas
+  const isCover = currentPage === 1;
+  const useSingleView = isMobile || (totalPages === 1) || isCover;
 
   // Cargar PDF
   useEffect(() => {
@@ -44,7 +53,6 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
       } catch (err: any) {
         console.error("Error loading PDF", err);
         let msg = "No se pudo cargar el documento.";
-        // Detect CORS or Network errors generally wrapped in UnknownErrorException by PDF.js
         if (err.name === 'UnknownErrorException' || err.message?.includes('Network') || err.name === 'MissingPDFException') {
             msg = "Error de acceso al archivo (Posible bloqueo CORS). Verifica la configuración de tu almacenamiento.";
         }
@@ -56,7 +64,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
     loadPdf();
   }, [magazine.pdfUrl]);
 
-  // Resize Observer: Detecta móvil y tamaño disponible para renderizar
+  // Resize Observer: Calcula dimensiones disponibles
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -67,47 +75,55 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
       const { width, height } = entry.contentRect;
       if (width === 0 || height === 0) return;
 
-      // Detectar móvil (breakpoint 768px)
       const mobile = width < 768;
       setIsMobile(mobile);
 
-      // Calcular espacio para CADA slot de página
-      const paddingX = mobile ? 20 : 40; // Margen lateral total reducido para PC
-      const paddingY = 40; // Margen vertical total
+      const paddingX = mobile ? 20 : 40; 
+      const paddingY = 40;
       
       const safeWidth = width - paddingX;
       const safeHeight = height - paddingY;
 
-      // En móvil o si solo hay 1 página, el slot es todo el ancho (centrado). 
-      // En desktop con >1 páginas, es la mitad.
-      const isSingleMode = mobile || (totalPages === 1);
-      const slotWidth = isSingleMode ? safeWidth : safeWidth / 2;
-      
-      setContainerSize({ width: slotWidth, height: safeHeight });
+      // Guardamos dimensiones pre-calculadas para evitar saltos al cambiar de página
+      setLayoutDims({
+          singleWidth: safeWidth,      // Ancho completo para portada/móvil
+          doubleWidth: safeWidth / 2,  // Mitad de ancho para vista libro
+          height: safeHeight
+      });
     };
 
     const observer = new ResizeObserver(measure);
     observer.observe(containerRef.current);
 
     return () => observer.disconnect();
-  }, [totalPages]); // Re-run when totalPages changes to adjust layout for single page docs
+  }, []);
 
-  // Lógica de navegación unificada
+  // Lógica de navegación
   const goToPrev = useCallback(() => {
     setCurrentPage(p => {
         if (isMobile) return Math.max(1, p - 1);
-        // Desktop: Retroceder 2 páginas (o ir a portada)
-        if (p === 1) return 1;
+        
+        // En Desktop:
+        // Si estamos en página 2 o 3, volver nos lleva a la 1 (Portada centrada)
+        if (p <= 3) return 1;
+        
+        // Si estamos más adelante (ej: 4-5), retrocedemos 2 páginas
         const target = p - 2; 
-        return Math.max(1, target % 2 === 0 ? target : target - 1); 
+        // Aseguramos que caiga en el inicio del spread (par)
+        return target % 2 === 0 ? target : target - 1; 
     });
   }, [isMobile]);
 
   const goToNext = useCallback(() => {
     setCurrentPage(p => {
         if (isMobile) return Math.min(totalPages, p + 1);
-        // Desktop: Avanzar 2 páginas
-        const target = p === 1 ? 2 : (p % 2 === 0 ? p + 2 : p + 1);
+        
+        // En Desktop:
+        // Si estamos en portada (1), vamos a 2 (que iniciará el spread 2-3)
+        if (p === 1) return 2;
+        
+        // Si estamos en spread, avanzamos 2
+        const target = p % 2 === 0 ? p + 2 : p + 1;
         if (target > totalPages) return p;
         return target;
     });
@@ -124,31 +140,31 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [goToPrev, goToNext, onClose]);
 
-  // Calcular qué páginas mostrar
+  // Calcular páginas a mostrar
   let leftPageNum = -1;
   let rightPageNum = -1;
 
-  if (showSingleView) {
-    // Modo Single: Solo mostramos la página actual (centrada)
-    leftPageNum = currentPage;
+  if (useSingleView) {
+    // Modo Single: Mostramos la página actual centrada
+    // (Puede ser portada P1, o cualquier página en móvil)
+    leftPageNum = currentPage; 
     rightPageNum = -1;
   } else {
-    // Modo Libro (Desktop multipágina)
-    if (currentPage === 1) {
-        leftPageNum = -1;
-        rightPageNum = 1;
-    } else {
-        const startSpread = currentPage % 2 === 0 ? currentPage : currentPage - 1;
-        leftPageNum = startSpread;
-        rightPageNum = startSpread + 1;
-    }
+    // Modo Libro (Desktop multipágina, excluyendo portada)
+    // El spread siempre empieza en par (2, 4, 6...) a la izquierda
+    const startSpread = currentPage % 2 === 0 ? currentPage : currentPage - 1;
+    leftPageNum = startSpread;
+    rightPageNum = startSpread + 1;
   }
 
   // Estado de botones
   const isFirst = currentPage === 1;
-  const isLast = showSingleView 
+  const isLast = useSingleView 
     ? currentPage >= totalPages 
     : (rightPageNum >= totalPages || leftPageNum >= totalPages);
+
+  // Slot actual (ancho)
+  const currentSlotWidth = useSingleView ? layoutDims.singleWidth : layoutDims.doubleWidth;
 
   return (
     <div className="fixed inset-0 z-50 bg-dark-900 flex flex-col h-screen overflow-hidden animate-in fade-in duration-200">
@@ -159,17 +175,15 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
             <h1 className="text-white font-medium truncate max-w-[100px] sm:max-w-md text-sm sm:text-base">{magazine.title}</h1>
             <span className="text-xs text-gray-400 bg-white/5 px-2 py-1 rounded border border-white/5 whitespace-nowrap hidden md:inline-block">
                 {totalPages > 0 ? (
-                    showSingleView 
-                    ? `Pág ${leftPageNum}` 
-                    : (leftPageNum === -1 ? `Portada (${rightPageNum})` : `Págs ${leftPageNum} - ${rightPageNum > totalPages ? '-' : rightPageNum}`)
+                    useSingleView 
+                    ? (currentPage === 1 ? `Portada` : `Pág ${currentPage}`)
+                    : `Págs ${leftPageNum} - ${rightPageNum > totalPages ? '-' : rightPageNum}`
                 ) : 'Cargando...'} 
                 {totalPages > 0 && ` / ${totalPages}`}
             </span>
         </div>
         
         <div className="flex items-center gap-2 sm:gap-4">
-            
-            {/* CTA for Non-Logged Users */}
             {!user && (
                 <button 
                     onClick={() => navigate('/login')}
@@ -223,32 +237,13 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
                 <h3 className="text-xl font-bold text-white mb-2">Error de lectura</h3>
                 <p className="text-gray-400 max-w-md mb-6">{error}</p>
                 <div className="flex gap-4 flex-wrap justify-center">
-                     <button 
-                        onClick={() => window.location.reload()}
-                        className="px-6 py-2 bg-dark-800 border border-white/10 text-white rounded-full font-medium hover:bg-dark-700 transition-colors"
-                    >
-                        Recargar
-                    </button>
-                    <a 
-                        href={magazine.pdfUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-6 py-2 bg-brand-600 text-white rounded-full font-medium hover:bg-brand-500 transition-colors flex items-center gap-2"
-                    >
-                        <ExternalLink className="w-4 h-4" />
-                        Abrir Original
-                    </a>
-                    <button 
-                        onClick={onClose}
-                        className="px-6 py-2 bg-white text-dark-900 rounded-full font-medium hover:bg-gray-200 transition-colors"
-                    >
-                        Cerrar
-                    </button>
+                     <button onClick={() => window.location.reload()} className="px-6 py-2 bg-dark-800 border border-white/10 text-white rounded-full font-medium hover:bg-dark-700 transition-colors">Recargar</button>
+                     <a href={magazine.pdfUrl} target="_blank" rel="noopener noreferrer" className="px-6 py-2 bg-brand-600 text-white rounded-full font-medium hover:bg-brand-500 transition-colors flex items-center gap-2"><ExternalLink className="w-4 h-4" /> Abrir Original</a>
+                    <button onClick={onClose} className="px-6 py-2 bg-white text-dark-900 rounded-full font-medium hover:bg-gray-200 transition-colors">Cerrar</button>
                 </div>
             </div>
         )}
 
-        {/* Botones de Navegación (solo si no hay error y hay páginas) */}
         {!error && totalPages > 0 && (
             <>
                 <button 
@@ -267,8 +262,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
                     <ChevronRight className="w-6 h-6 sm:w-8 sm:h-8" />
                 </button>
 
-                {/* Zonas de clic invisibles en los bordes para facilitar navegación en Desktop (desactivado en modo SinglePage para no interferir) */}
-                {!showSingleView && !loading && (
+                {!useSingleView && !loading && (
                     <>
                         <div onClick={goToPrev} className="absolute inset-y-0 left-0 w-[10%] z-30 cursor-pointer hover:bg-white/5 transition-colors" title="Página anterior" />
                         <div onClick={goToNext} className="absolute inset-y-0 right-0 w-[10%] z-30 cursor-pointer hover:bg-white/5 transition-colors" title="Página siguiente" />
@@ -278,50 +272,73 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
         )}
 
         {/* Contenedor del Libro */}
-        {!error && totalPages > 0 && (
+        {!error && totalPages > 0 && layoutDims.height > 0 && (
             <div 
-                className="flex items-center justify-center w-full h-full transition-transform duration-200 gap-0"
+                className="flex items-center justify-center w-full h-full transition-transform duration-300 gap-0"
                 style={{ 
                     transform: `scale(${zoom})`, 
                     transformOrigin: 'center center' 
                 }}
             >
-                 {/* Renderizado Página Izquierda (Solo Desktop multipágina) */}
-                 {!showSingleView && (
-                     <div style={{ width: containerSize.width, height: containerSize.height }} className="flex justify-end items-center relative flex-shrink-0">
-                        {leftPageNum > 0 && leftPageNum <= totalPages && (
-                            <PDFPage 
-                                pdfDoc={pdfDoc} 
-                                pageNum={leftPageNum} 
-                                containerWidth={containerSize.width} 
-                                containerHeight={containerSize.height} 
-                                scale={1} 
-                                variant="left"
-                            />
-                        )}
-                     </div>
-                 )}
+                 {/* 
+                    LÓGICA DE RENDERIZADO:
+                    Si useSingleView es TRUE (Portada, Móvil o PDF de 1 página):
+                      - Renderizamos UN solo contenedor centrado.
+                    Si es FALSE (Libro abierto en Desktop):
+                      - Renderizamos DOS contenedores (Izquierda y Derecha).
+                 */}
 
-                 {/* Renderizado Página Derecha (Desktop multipágina) o Principal (Single View) */}
-                 <div 
-                    style={{ width: containerSize.width, height: containerSize.height }} 
-                    className={`flex ${showSingleView ? 'justify-center' : 'justify-start'} items-center relative flex-shrink-0`}
-                 >
-                    {(showSingleView ? leftPageNum : rightPageNum) > 0 && (showSingleView ? leftPageNum : rightPageNum) <= totalPages && (
-                         <PDFPage 
+                 {useSingleView ? (
+                    // --- VISTA SIMPLE (CENTRADA) ---
+                    <div 
+                        style={{ width: currentSlotWidth, height: layoutDims.height }} 
+                        className="flex justify-center items-center relative flex-shrink-0 animate-in fade-in duration-300"
+                    >
+                        <PDFPage 
                             pdfDoc={pdfDoc} 
-                            pageNum={showSingleView ? leftPageNum : rightPageNum} 
-                            containerWidth={containerSize.width} 
-                            containerHeight={containerSize.height}
+                            pageNum={leftPageNum} // En single view, leftPageNum contiene la página actual
+                            containerWidth={currentSlotWidth} 
+                            containerHeight={layoutDims.height}
                             scale={1}
-                            variant={showSingleView ? 'single' : 'right'}
-                         />
-                    )}
-                 </div>
+                            variant="single"
+                        />
+                    </div>
+                 ) : (
+                    // --- VISTA DOBLE (LIBRO) ---
+                    <>
+                         {/* Página Izquierda */}
+                         <div style={{ width: currentSlotWidth, height: layoutDims.height }} className="flex justify-end items-center relative flex-shrink-0">
+                            {leftPageNum > 0 && leftPageNum <= totalPages && (
+                                <PDFPage 
+                                    pdfDoc={pdfDoc} 
+                                    pageNum={leftPageNum} 
+                                    containerWidth={currentSlotWidth} 
+                                    containerHeight={layoutDims.height} 
+                                    scale={1} 
+                                    variant="left"
+                                />
+                            )}
+                         </div>
 
-                 {/* Línea central (Solo desktop multipágina cuando hay dos páginas visibles) */}
-                 {!showSingleView && leftPageNum > 0 && rightPageNum > 0 && rightPageNum <= totalPages && (
-                     <div className="absolute h-[95%] w-px bg-gradient-to-b from-transparent via-black/40 to-transparent z-10 left-1/2 -ml-px" />
+                         {/* Lomo / Sombra central */}
+                         {leftPageNum > 0 && rightPageNum > 0 && rightPageNum <= totalPages && (
+                             <div className="absolute h-[95%] w-px bg-gradient-to-b from-transparent via-black/40 to-transparent z-10 left-1/2 -ml-px" />
+                         )}
+
+                         {/* Página Derecha */}
+                         <div style={{ width: currentSlotWidth, height: layoutDims.height }} className="flex justify-start items-center relative flex-shrink-0">
+                            {rightPageNum > 0 && rightPageNum <= totalPages && (
+                                 <PDFPage 
+                                    pdfDoc={pdfDoc} 
+                                    pageNum={rightPageNum} 
+                                    containerWidth={currentSlotWidth} 
+                                    containerHeight={layoutDims.height}
+                                    scale={1}
+                                    variant="right"
+                                 />
+                            )}
+                         </div>
+                    </>
                  )}
             </div>
         )}
