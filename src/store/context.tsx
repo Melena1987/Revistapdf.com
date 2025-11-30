@@ -34,8 +34,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const mags = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Magazine));
       setMagazines(mags);
-    }, (error) => {
+    }, (error: any) => {
       console.error("Error fetching magazines:", error);
+      if (error.code === 'permission-denied') {
+        console.warn("Permiso denegado al leer revistas. Verifica firestore.rules.");
+      }
     });
 
     return () => unsubscribe();
@@ -75,9 +78,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       // 3. Save to Firestore
       await setDoc(doc(db, "magazines", mag.id), newMagazine);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error adding magazine:", error);
-      alert("Error al subir la revista. Por favor intenta de nuevo.");
+      if (error.code === 'permission-denied' || error.code === 'storage/unauthorized') {
+        alert("Error de permisos: No tienes autorización para guardar datos o archivos. Por favor verifica que las reglas de Firebase (Firestore y Storage) permitan escritura a usuarios autenticados.");
+      } else {
+        alert("Error al subir la revista. Por favor intenta de nuevo.");
+      }
     }
   };
 
@@ -97,8 +104,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       const magRef = doc(db, "magazines", id);
       await updateDoc(magRef, finalUpdates);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error updating magazine:", error);
+      if (error.code === 'permission-denied' || error.code === 'storage/unauthorized') {
+        alert("Error de permisos al actualizar. Verifica las reglas de Firebase.");
+      }
     }
   };
 
