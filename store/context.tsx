@@ -5,21 +5,24 @@ import {
   setDoc, 
   doc, 
   updateDoc, 
+  deleteDoc,
   query, 
   orderBy 
 } from 'firebase/firestore';
 import { 
   ref, 
   uploadBytes, 
-  getDownloadURL 
+  getDownloadURL,
+  deleteObject
 } from 'firebase/storage';
-import { db, storage } from '../src/firebase';
+import { db, storage } from '../firebase';
 import { Magazine } from '../types';
 
 interface AppContextType {
   magazines: Magazine[];
   addMagazine: (mag: Magazine) => Promise<void>;
   updateMagazine: (id: string, updates: Partial<Magazine>) => Promise<void>;
+  deleteMagazine: (id: string) => Promise<void>;
   getMagazine: (id: string) => Magazine | undefined;
 }
 
@@ -34,8 +37,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const mags = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Magazine));
       setMagazines(mags);
-    }, (error) => {
+    }, (error: any) => {
       console.error("Error fetching magazines:", error);
+      if (error.code === 'permission-denied') {
+        console.warn("Permiso denegado al leer revistas. Verifica firestore.rules.");
+      }
     });
 
     return () => unsubscribe();
@@ -75,9 +81,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       // 3. Save to Firestore
       await setDoc(doc(db, "magazines", mag.id), newMagazine);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error adding magazine:", error);
-      alert("Error al subir la revista. Por favor intenta de nuevo.");
+      if (error.code === 'permission-denied' || error.code === 'storage/unauthorized') {
+        alert("Error de permisos: No tienes autorización para guardar datos o archivos. Por favor verifica que las reglas de Firebase (Firestore y Storage) permitan escritura a usuarios autenticados.");
+      } else {
+        alert("Error al subir la revista. Por favor intenta de nuevo.");
+      }
     }
   };
 
@@ -97,15 +107,52 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       const magRef = doc(db, "magazines", id);
       await updateDoc(magRef, finalUpdates);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error updating magazine:", error);
+      if (error.code === 'permission-denied' || error.code === 'storage/unauthorized') {
+        alert("Error de permisos al actualizar. Verifica las reglas de Firebase.");
+      }
+    }
+  };
+
+  const deleteMagazine = async (id: string) => {
+    try {
+      const mag = magazines.find(m => m.id === id);
+      
+      if (mag) {
+        // Attempt to delete associated files from storage
+        // Note: This relies on the URL being a standard Firebase Storage URL
+        if (mag.pdfUrl && mag.pdfUrl.includes('firebasestorage')) {
+          try {
+            const pdfRef = ref(storage, mag.pdfUrl);
+            await deleteObject(pdfRef);
+          } catch (e) {
+            console.warn(`Could not delete PDF for ${id}`, e);
+          }
+        }
+
+        if (mag.coverImage && mag.coverImage.includes('firebasestorage')) {
+          try {
+            const coverRef = ref(storage, mag.coverImage);
+            await deleteObject(coverRef);
+          } catch (e) {
+            console.warn(`Could not delete cover for ${id}`, e);
+          }
+        }
+      }
+
+      // Delete document
+      await deleteDoc(doc(db, "magazines", id));
+    } catch (error) {
+       console.error("Error deleting magazine:", error);
+       alert("Error al eliminar la revista.");
     }
   };
 
   const getMagazine = (id: string) => magazines.find(m => m.id === id);
 
   return (
-    <AppContext.Provider value={{ magazines, addMagazine, updateMagazine, getMagazine }}>
+    <AppContext.Provider value={{ magazines, addMagazine, updateMagazine, deleteMagazine, getMagazine }}>
       {children}
     </AppContext.Provider>
   );

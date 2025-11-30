@@ -33,7 +33,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
 // Dashboard Component
 const Dashboard: React.FC = () => {
-  const { magazines, getMagazine } = useAppStore();
+  const { magazines, getMagazine, deleteMagazine } = useAppStore();
   const [selectedMagazine, setSelectedMagazine] = useState<Magazine | null>(null);
   const [editingMagazine, setEditingMagazine] = useState<Magazine | null>(null);
   const [isUploadModalOpen, setUploadModalOpen] = useState(false);
@@ -72,6 +72,12 @@ const Dashboard: React.FC = () => {
     setUploadModalOpen(true);
   };
 
+  const handleDelete = async (mag: Magazine) => {
+    if (window.confirm(`¿Estás seguro de que quieres eliminar "${mag.title}"? Esta acción no se puede deshacer.`)) {
+        await deleteMagazine(mag.id);
+    }
+  };
+
   const handleCloseViewer = () => {
     setSelectedMagazine(null);
     // Remove ID from URL without refreshing
@@ -84,8 +90,8 @@ const Dashboard: React.FC = () => {
         
         <div className="container mx-auto px-4 py-8">
         
-        {/* Grid: Increased columns to make cards smaller (grid-cols-2 up to grid-cols-5) */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+        {/* Grid: Much denser columns for smaller cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3">
             {magazines.map((mag) => (
                 <MagazineCard 
                     key={mag.id} 
@@ -93,6 +99,7 @@ const Dashboard: React.FC = () => {
                     onView={setSelectedMagazine}
                     onEdit={handleEdit}
                     onShare={setSharingMagazine}
+                    onDelete={handleDelete}
                 />
             ))}
             
