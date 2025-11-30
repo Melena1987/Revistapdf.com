@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut, Loader2, AlertCircle } from 'lucide-react';
 import { getPdfDocument } from '../services/pdf';
 import { Magazine } from '../types';
 import { PDFPage } from './PDFPage';
@@ -13,6 +13,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
   const [pdfDoc, setPdfDoc] = useState<any>(null);
   const [totalPages, setTotalPages] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   
   // Estado de navegación: Usamos 'currentPage' (1-based) como referencia principal
   const [currentPage, setCurrentPage] = useState(1);
@@ -26,12 +27,19 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
   useEffect(() => {
     const loadPdf = async () => {
       setLoading(true);
+      setError(null);
       try {
         const doc = await getPdfDocument(magazine.pdfUrl);
         setPdfDoc(doc);
         setTotalPages(doc.numPages);
-      } catch (error) {
-        console.error("Error loading PDF", error);
+      } catch (err: any) {
+        console.error("Error loading PDF", err);
+        let msg = "No se pudo cargar el documento.";
+        // Detect CORS or Network errors generally wrapped in UnknownErrorException by PDF.js
+        if (err.name === 'UnknownErrorException' || err.message?.includes('Network') || err.name === 'MissingPDFException') {
+            msg = "Error de acceso al archivo (Posible bloqueo CORS). Verifica la configuración de tu almacenamiento.";
+        }
+        setError(msg);
       } finally {
         setLoading(false);
       }
@@ -139,10 +147,12 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
         <div className="flex items-center gap-4">
             <h1 className="text-white font-medium truncate max-w-[150px] sm:max-w-md text-sm sm:text-base">{magazine.title}</h1>
             <span className="text-xs text-gray-400 bg-white/5 px-2 py-1 rounded border border-white/5 whitespace-nowrap hidden sm:inline-block">
-                {isMobile 
-                  ? `Pág ${leftPageNum}` 
-                  : (leftPageNum === -1 ? `Portada (${rightPageNum})` : `Págs ${leftPageNum} - ${rightPageNum > totalPages ? '-' : rightPageNum}`)
-                } / {totalPages}
+                {totalPages > 0 ? (
+                    isMobile 
+                    ? `Pág ${leftPageNum}` 
+                    : (leftPageNum === -1 ? `Portada (${rightPageNum})` : `Págs ${leftPageNum} - ${rightPageNum > totalPages ? '-' : rightPageNum}`)
+                ) : 'Cargando...'} 
+                {totalPages > 0 && ` / ${totalPages}`}
             </span>
         </div>
         
@@ -163,82 +173,112 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
         {loading && (
              <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-dark-900/50 backdrop-blur-sm">
                 <Loader2 className="w-10 h-10 text-brand-500 animate-spin mb-4" />
-                <span className="text-white font-medium">Cargando revista...</span>
+                <span className="text-white font-medium">Cargando documento...</span>
              </div>
         )}
 
-        {/* Botones de Navegación */}
-        <button 
-            onClick={goToPrev}
-            disabled={isFirst}
-            className="absolute left-2 sm:left-6 z-40 p-2 sm:p-3 rounded-full bg-dark-900/90 text-white hover:bg-brand-600 disabled:opacity-0 disabled:pointer-events-none transition-all shadow-xl border border-white/10"
-        >
-            <ChevronLeft className="w-6 h-6 sm:w-8 sm:h-8" />
-        </button>
+        {error && (
+            <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center bg-dark-900 p-4 text-center">
+                <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-4">
+                    <AlertCircle className="w-8 h-8 text-red-500" />
+                </div>
+                <h3 className="text-xl font-bold text-white mb-2">Error de lectura</h3>
+                <p className="text-gray-400 max-w-md mb-6">{error}</p>
+                <div className="flex gap-4">
+                     <button 
+                        onClick={() => window.location.reload()}
+                        className="px-6 py-2 bg-dark-800 border border-white/10 text-white rounded-full font-medium hover:bg-dark-700 transition-colors"
+                    >
+                        Recargar
+                    </button>
+                    <button 
+                        onClick={onClose}
+                        className="px-6 py-2 bg-white text-dark-900 rounded-full font-medium hover:bg-gray-200 transition-colors"
+                    >
+                        Cerrar
+                    </button>
+                </div>
+            </div>
+        )}
 
-        <button 
-            onClick={goToNext}
-            disabled={isLast}
-            className="absolute right-2 sm:right-6 z-40 p-2 sm:p-3 rounded-full bg-dark-900/90 text-white hover:bg-brand-600 disabled:opacity-0 disabled:pointer-events-none transition-all shadow-xl border border-white/10"
-        >
-            <ChevronRight className="w-6 h-6 sm:w-8 sm:h-8" />
-        </button>
-
-        {/* Zonas de clic invisibles en los bordes para facilitar navegación en Desktop */}
-        {!isMobile && !loading && (
+        {/* Botones de Navegación (solo si no hay error y hay páginas) */}
+        {!error && totalPages > 0 && (
             <>
-                <div onClick={goToPrev} className="absolute inset-y-0 left-0 w-[10%] z-30 cursor-pointer hover:bg-white/5 transition-colors" title="Página anterior" />
-                <div onClick={goToNext} className="absolute inset-y-0 right-0 w-[10%] z-30 cursor-pointer hover:bg-white/5 transition-colors" title="Página siguiente" />
+                <button 
+                    onClick={goToPrev}
+                    disabled={isFirst}
+                    className="absolute left-2 sm:left-6 z-40 p-2 sm:p-3 rounded-full bg-dark-900/90 text-white hover:bg-brand-600 disabled:opacity-0 disabled:pointer-events-none transition-all shadow-xl border border-white/10"
+                >
+                    <ChevronLeft className="w-6 h-6 sm:w-8 sm:h-8" />
+                </button>
+
+                <button 
+                    onClick={goToNext}
+                    disabled={isLast}
+                    className="absolute right-2 sm:right-6 z-40 p-2 sm:p-3 rounded-full bg-dark-900/90 text-white hover:bg-brand-600 disabled:opacity-0 disabled:pointer-events-none transition-all shadow-xl border border-white/10"
+                >
+                    <ChevronRight className="w-6 h-6 sm:w-8 sm:h-8" />
+                </button>
+
+                {/* Zonas de clic invisibles en los bordes para facilitar navegación en Desktop */}
+                {!isMobile && !loading && (
+                    <>
+                        <div onClick={goToPrev} className="absolute inset-y-0 left-0 w-[10%] z-30 cursor-pointer hover:bg-white/5 transition-colors" title="Página anterior" />
+                        <div onClick={goToNext} className="absolute inset-y-0 right-0 w-[10%] z-30 cursor-pointer hover:bg-white/5 transition-colors" title="Página siguiente" />
+                    </>
+                )}
             </>
         )}
 
         {/* Contenedor del Libro */}
-        <div 
-            ref={containerRef}
-            className="flex items-center justify-center w-full h-full transition-transform duration-200 gap-0"
-            style={{ 
-                transform: `scale(${zoom})`, 
-                transformOrigin: 'center center' 
-            }}
-        >
-             {/* Renderizado Página Izquierda (Solo Desktop) */}
-             {!isMobile && (
-                 <div style={{ width: containerSize.width, height: containerSize.height }} className="flex justify-end items-center relative flex-shrink-0">
-                    {leftPageNum > 0 && leftPageNum <= totalPages && (
-                        <PDFPage 
+        {!error && totalPages > 0 && (
+            <div 
+                ref={containerRef}
+                className="flex items-center justify-center w-full h-full transition-transform duration-200 gap-0"
+                style={{ 
+                    transform: `scale(${zoom})`, 
+                    transformOrigin: 'center center' 
+                }}
+            >
+                 {/* Renderizado Página Izquierda (Solo Desktop) */}
+                 {!isMobile && (
+                     <div style={{ width: containerSize.width, height: containerSize.height }} className="flex justify-end items-center relative flex-shrink-0">
+                        {leftPageNum > 0 && leftPageNum <= totalPages && (
+                            <PDFPage 
+                                pdfDoc={pdfDoc} 
+                                pageNum={leftPageNum} 
+                                containerWidth={containerSize.width} 
+                                containerHeight={containerSize.height} 
+                                scale={1} 
+                                variant="left"
+                            />
+                        )}
+                     </div>
+                 )}
+
+                 {/* Renderizado Página Derecha (Desktop) o Principal (Móvil) */}
+                 <div 
+                    style={{ width: containerSize.width, height: containerSize.height }} 
+                    className={`flex ${isMobile ? 'justify-center' : 'justify-start'} items-center relative flex-shrink-0`}
+                 >
+                    {(isMobile ? leftPageNum : rightPageNum) > 0 && (isMobile ? leftPageNum : rightPageNum) <= totalPages && (
+                         <PDFPage 
                             pdfDoc={pdfDoc} 
-                            pageNum={leftPageNum} 
+                            pageNum={isMobile ? leftPageNum : rightPageNum} 
                             containerWidth={containerSize.width} 
-                            containerHeight={containerSize.height} 
-                            scale={1} 
-                            variant="left"
-                        />
+                            containerHeight={containerSize.height}
+                            scale={1}
+                            variant={isMobile ? 'single' : 'right'}
+                         />
                     )}
                  </div>
-             )}
 
-             {/* Renderizado Página Derecha (Desktop) o Principal (Móvil) */}
-             <div 
-                style={{ width: containerSize.width, height: containerSize.height }} 
-                className={`flex ${isMobile ? 'justify-center' : 'justify-start'} items-center relative flex-shrink-0`}
-             >
-                {(isMobile ? leftPageNum : rightPageNum) > 0 && (isMobile ? leftPageNum : rightPageNum) <= totalPages && (
-                     <PDFPage 
-                        pdfDoc={pdfDoc} 
-                        pageNum={isMobile ? leftPageNum : rightPageNum} 
-                        containerWidth={containerSize.width} 
-                        containerHeight={containerSize.height}
-                        scale={1}
-                        variant={isMobile ? 'single' : 'right'}
-                     />
-                )}
-             </div>
-
-             {/* Línea central (Solo desktop cuando hay dos páginas visibles) */}
-             {!isMobile && leftPageNum > 0 && rightPageNum > 0 && rightPageNum <= totalPages && (
-                 <div className="absolute h-[95%] w-px bg-gradient-to-b from-transparent via-black/40 to-transparent z-10 left-1/2 -ml-px" />
-             )}
-        </div>
+                 {/* Línea central (Solo desktop cuando hay dos páginas visibles) */}
+                 {!isMobile && leftPageNum > 0 && rightPageNum > 0 && rightPageNum <= totalPages && (
+                     <div className="absolute h-[95%] w-px bg-gradient-to-b from-transparent via-black/40 to-transparent z-10 left-1/2 -ml-px" />
+                 )}
+            </div>
+        )}
 
       </div>
     </div>

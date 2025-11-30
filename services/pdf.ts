@@ -7,7 +7,19 @@ declare global {
 
 export const getPdfDocument = async (url: string) => {
   if (!window.pdfjsLib) throw new Error("PDF.js library not loaded");
-  const loadingTask = window.pdfjsLib.getDocument(url);
+  
+  // Configure PDF.js to be more robust against CORS and font issues
+  // disableRange: true forces the browser to download the whole file in one go, 
+  // which often bypasses CORS preflight issues with Range headers on Firebase Storage.
+  const config = {
+    url: url,
+    cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
+    cMapPacked: true,
+    disableRange: true,
+    disableStream: true
+  };
+
+  const loadingTask = window.pdfjsLib.getDocument(config);
   return await loadingTask.promise;
 };
 
