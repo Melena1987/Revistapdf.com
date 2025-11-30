@@ -8,11 +8,21 @@ declare global {
 export const getPdfDocument = async (url: string) => {
   if (!window.pdfjsLib) throw new Error("PDF.js library not loaded");
   
+  // Cache busting: Append a timestamp to the URL to prevent the browser from 
+  // using a cached response that might have "failed CORS" headers.
+  // This forces a fresh request to Firebase Storage.
+  // We only apply this to remote URLs, not local blob: URLs.
+  let finalUrl = url;
+  if (!url.startsWith('blob:')) {
+    const separator = url.includes('?') ? '&' : '?';
+    finalUrl = `${url}${separator}t=${Date.now()}`;
+  }
+
   // Configure PDF.js to be more robust against CORS and font issues
   // disableRange: true forces the browser to download the whole file in one go, 
   // which often bypasses CORS preflight issues with Range headers on Firebase Storage.
   const config = {
-    url: url,
+    url: finalUrl,
     cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
     cMapPacked: true,
     disableRange: true,
