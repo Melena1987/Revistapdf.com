@@ -58,6 +58,13 @@ const MagazineCard: React.FC<MagazineCardProps> = ({ magazine, onView, onEdit, o
                   className="p-3 bg-dark-900/80 text-white rounded-full hover:bg-brand-600 transition-colors" title="Compartir">
                   <Share2 className="w-4 h-4" />
               </button>
+              {user && (
+                  <button 
+                      onClick={() => onDelete(magazine)}
+                      className="p-3 bg-dark-900/80 text-white rounded-full hover:bg-red-600 transition-colors" title="Eliminar">
+                      <Trash2 className="w-4 h-4" />
+                  </button>
+              )}
           </div>
         </div>
       </div>
