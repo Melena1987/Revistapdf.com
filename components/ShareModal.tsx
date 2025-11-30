@@ -1,12 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X, Copy, Check, QrCode, Download, Share2 } from 'lucide-react';
+import { X, Copy, Check, QrCode as QrCodeIcon, Download, Share2 } from 'lucide-react';
 import { Magazine } from '../types';
-
-declare global {
-  interface Window {
-    QRCode: any;
-  }
-}
+import QRCode from 'qrcode';
 
 interface ShareModalProps {
   magazine: Magazine;
@@ -19,14 +14,14 @@ const ShareModal: React.FC<ShareModalProps> = ({ magazine, onClose }) => {
   const [copyButtonText, setCopyButtonText] = useState('Copiar');
 
   useEffect(() => {
-    if (window.QRCode) {
-      window.QRCode.toDataURL(shareUrl, { width: 256, margin: 1 }, (err: any, url: string) => {
-        if (err) console.error(err);
-        else setQrCodeUrl(url);
+    // Generate QR Code using the imported library
+    QRCode.toDataURL(shareUrl, { width: 256, margin: 1 })
+      .then((url: string) => {
+        setQrCodeUrl(url);
+      })
+      .catch((err: any) => {
+        console.error("Error generating QR code:", err);
       });
-    } else {
-        console.warn('QRCode library not found.');
-    }
   }, [shareUrl]);
 
   const handleCopy = () => {
@@ -68,7 +63,7 @@ const ShareModal: React.FC<ShareModalProps> = ({ magazine, onClose }) => {
               <img src={qrCodeUrl} alt="QR Code" className="w-48 h-48" />
             ) : (
               <div className="w-48 h-48 bg-gray-200 flex items-center justify-center text-gray-500">
-                <QrCode className="w-12 h-12 animate-pulse" />
+                <QrCodeIcon className="w-12 h-12 animate-pulse" />
               </div>
             )}
           </div>
