@@ -2,121 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut, Loader2 } from 'lucide-react';
 import { getPdfDocument } from '../services/pdf';
 import { Magazine } from '../types';
-
-// --- Sub-componente para renderizar una página individual ---
-interface PDFPageProps {
-  pdfDoc: any;
-  pageNum: number;
-  containerWidth: number;
-  containerHeight: number;
-  scale: number; // Zoom del usuario
-  className?: string;
-}
-
-const PDFPage: React.FC<PDFPageProps> = React.memo(({ pdfDoc, pageNum, containerWidth, containerHeight, scale, className = "" }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const renderTaskRef = useRef<any>(null);
-  const [isRendering, setIsRendering] = useState(false);
-  // Guardamos las dimensiones CSS exactas para centrar el canvas
-  const [pageDims, setPageDims] = useState<{ width: number; height: number } | null>(null);
-
-  useEffect(() => {
-    if (!pdfDoc || !canvasRef.current || pageNum <= 0 || pageNum > pdfDoc.numPages || containerWidth <= 0 || containerHeight <= 0) return;
-
-    const render = async () => {
-      try {
-        setIsRendering(true);
-        if (renderTaskRef.current) {
-            renderTaskRef.current.cancel();
-        }
-
-        const page = await pdfDoc.getPage(pageNum);
-        
-        // 1. Obtener viewport base para conocer las proporciones reales del PDF
-        const baseViewport = page.getViewport({ scale: 1 });
-        
-        // 2. Calcular el factor de escala para que encaje ("contain") en el contenedor disponible
-        const widthScale = containerWidth / baseViewport.width;
-        const heightScale = containerHeight / baseViewport.height;
-        // Elegimos el menor para asegurar que todo el contenido es visible sin deformarse
-        const fitScale = Math.min(widthScale, heightScale);
-        
-        // 3. Aplicar zoom del usuario y densidad de píxeles (Retina display support)
-        const dpr = window.devicePixelRatio || 1;
-        const totalScale = fitScale * scale; 
-        
-        // Viewport final para el renderizado
-        const scaledViewport = page.getViewport({ scale: totalScale * dpr });
-
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-
-        // Dimensiones del buffer (resolución física)
-        canvas.width = scaledViewport.width;
-        canvas.height = scaledViewport.height;
-
-        // Dimensiones visuales CSS (resolución lógica)
-        const cssWidth = scaledViewport.width / dpr;
-        const cssHeight = scaledViewport.height / dpr;
-        setPageDims({ width: cssWidth, height: cssHeight });
-
-        const context = canvas.getContext('2d');
-        if (!context) return;
-
-        const renderContext = {
-          canvasContext: context,
-          viewport: scaledViewport,
-        };
-
-        const task = page.render(renderContext);
-        renderTaskRef.current = task;
-        await task.promise;
-        setIsRendering(false);
-      } catch (error: any) {
-        if (error.name !== 'RenderingCancelledException') {
-            console.error(`Error rendering page ${pageNum}:`, error);
-        }
-        setIsRendering(false);
-      }
-    };
-
-    render();
-
-    return () => {
-        if (renderTaskRef.current) {
-            renderTaskRef.current.cancel();
-        }
-    };
-  }, [pdfDoc, pageNum, containerWidth, containerHeight, scale]);
-
-  if (pageNum <= 0 || (pdfDoc && pageNum > pdfDoc.numPages)) {
-    return <div className={`w-full h-full ${className}`} />;
-  }
-
-  return (
-    <div className={`relative flex items-center ${className}`} style={{ width: '100%', height: '100%' }}>
-      {isRendering && (
-          <div className="absolute inset-0 flex items-center justify-center z-10">
-              <Loader2 className="w-8 h-8 text-brand-500 animate-spin" />
-          </div>
-      )}
-      <canvas 
-        ref={canvasRef} 
-        className="shadow-xl bg-white block select-none transition-transform duration-200"
-        style={{
-            // Aplicamos dimensiones explícitas para respetar aspect ratio
-            width: pageDims ? `${pageDims.width}px` : 'auto',
-            height: pageDims ? `${pageDims.height}px` : 'auto',
-            maxWidth: '100%',
-            maxHeight: '100%',
-            objectFit: 'contain'
-        }}
-      />
-    </div>
-  );
-});
-
-// --- Componente Principal ---
+import { PDFPage } from './PDFPage';
 
 interface FlipbookViewerProps {
   magazine: Magazine;
@@ -169,7 +55,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
       setIsMobile(mobile);
 
       // Calcular espacio para CADA slot de página
-      const paddingX = mobile ? 20 : 60; // Margen lateral total
+      const paddingX = mobile ? 20 : 40; // Margen lateral total reducido para PC
       const paddingY = 40; // Margen vertical total
       
       const safeWidth = width - paddingX;
@@ -192,12 +78,8 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
     setCurrentPage(p => {
         if (isMobile) return Math.max(1, p - 1);
         // Desktop: Retroceder 2 páginas (o ir a portada)
-        // Si estamos en 3 (Spread 2-3), ir a 1.
-        // Si estamos en 1, quedarse en 1.
         if (p === 1) return 1;
-        const target = p - 2; // Retroceder un spread
-        // Si el target cae en par (2), queremos que sea el inicio del spread (2,3).
-        // Si el target cae en 0 o 1, ir a 1.
+        const target = p - 2; 
         return Math.max(1, target % 2 === 0 ? target : target - 1); 
     });
   }, [isMobile]);
@@ -206,8 +88,6 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
     setCurrentPage(p => {
         if (isMobile) return Math.min(totalPages, p + 1);
         // Desktop: Avanzar 2 páginas
-        // Si estamos en 1 (Portada), ir a 2 (Spread 2-3).
-        // Si estamos en 2 (Spread 2-3), ir a 4 (Spread 4-5).
         const target = p === 1 ? 2 : (p % 2 === 0 ? p + 2 : p + 1);
         if (target > totalPages) return p;
         return target;
@@ -235,15 +115,10 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
     rightPageNum = -1;
   } else {
     // Escritorio: Modo Libro
-    // Si currentPage es 1 -> Portada (L: null, R: 1)
-    // Si currentPage > 1 -> Asumimos spreads estándar (2-3, 4-5, etc)
-    // Ajustamos currentPage para que apunte al inicio del spread correcto
-    
     if (currentPage === 1) {
         leftPageNum = -1;
         rightPageNum = 1;
     } else {
-        // Asegurar que empezamos en par. Si estamos en 3, realmente estamos viendo spread 2-3.
         const startSpread = currentPage % 2 === 0 ? currentPage : currentPage - 1;
         leftPageNum = startSpread;
         rightPageNum = startSpread + 1;
@@ -320,24 +195,23 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
         {/* Contenedor del Libro */}
         <div 
             ref={containerRef}
-            className="flex items-center justify-center w-full h-full transition-transform duration-200"
+            className="flex items-center justify-center w-full h-full transition-transform duration-200 gap-0"
             style={{ 
-                // Aplicamos zoom al contenedor
                 transform: `scale(${zoom})`, 
                 transformOrigin: 'center center' 
             }}
         >
              {/* Renderizado Página Izquierda (Solo Desktop) */}
              {!isMobile && (
-                 <div style={{ width: containerSize.width, height: containerSize.height }} className="flex justify-end items-center relative">
+                 <div style={{ width: containerSize.width, height: containerSize.height }} className="flex justify-end items-center relative flex-shrink-0">
                     {leftPageNum > 0 && leftPageNum <= totalPages && (
                         <PDFPage 
                             pdfDoc={pdfDoc} 
                             pageNum={leftPageNum} 
                             containerWidth={containerSize.width} 
                             containerHeight={containerSize.height} 
-                            scale={1} // El zoom ya se aplica al padre, pasamos 1 para cálculo relativo
-                            className="origin-right justify-end"
+                            scale={1} 
+                            variant="left"
                         />
                     )}
                  </div>
@@ -346,7 +220,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
              {/* Renderizado Página Derecha (Desktop) o Principal (Móvil) */}
              <div 
                 style={{ width: containerSize.width, height: containerSize.height }} 
-                className={`flex ${isMobile ? 'justify-center' : 'justify-start'} items-center relative`}
+                className={`flex ${isMobile ? 'justify-center' : 'justify-start'} items-center relative flex-shrink-0`}
              >
                 {(isMobile ? leftPageNum : rightPageNum) > 0 && (isMobile ? leftPageNum : rightPageNum) <= totalPages && (
                      <PDFPage 
@@ -355,14 +229,14 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
                         containerWidth={containerSize.width} 
                         containerHeight={containerSize.height}
                         scale={1}
-                        className={isMobile ? "origin-center justify-center" : "origin-left justify-start"}
+                        variant={isMobile ? 'single' : 'right'}
                      />
                 )}
              </div>
 
              {/* Línea central (Solo desktop cuando hay dos páginas visibles) */}
              {!isMobile && leftPageNum > 0 && rightPageNum > 0 && rightPageNum <= totalPages && (
-                 <div className="absolute h-[95%] w-px bg-gradient-to-b from-transparent via-black/40 to-transparent z-10" />
+                 <div className="absolute h-[95%] w-px bg-gradient-to-b from-transparent via-black/40 to-transparent z-10 left-1/2 -ml-px" />
              )}
         </div>
 
