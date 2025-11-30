@@ -108,14 +108,11 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
         
         // Si estamos en la contraportada (vista simple), al volver queremos ver el último spread.
         if (p === totalPages && totalPages > 1) {
-            // Si Total es impar (ej: 5). Spread anterior es 4-5? No, queremos 4(Izq)-5(Der) antes de cerrar.
-            // Si p=5. Queremos ir al spread donde 4 es la página izquierda.
-            // Si Total es par (ej: 4). Spread anterior es 2-3. p=4. Queremos ir a 2.
-            
-            // Si es impar, el spread anterior comienza en p-1 (ej: ir a 4 para ver 4-5).
-            if (p % 2 !== 0) return p - 1;
-            // Si es par, el spread anterior comienza en p-2 (ej: ir a 2 para ver 2-3).
-            return p - 2;
+            // Si Total es impar (ej: 5). Spread anterior es 4-5.
+            if (p % 2 !== 0) return Math.max(1, p - 1);
+            // Si Total es par (ej: 4). Spread anterior es 2-3. 
+            // Si p=2, volvemos a 1. (Math.max(1, 0) = 1)
+            return Math.max(1, p - 2);
         }
 
         // En Desktop standard:
@@ -125,7 +122,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
         // Si estamos más adelante (ej: 4-5), retrocedemos 2 páginas
         const target = p - 2; 
         // Aseguramos que caiga en el inicio del spread (par)
-        return target % 2 === 0 ? target : target - 1; 
+        return Math.max(1, target % 2 === 0 ? target : target - 1); 
     });
   }, [isMobile, totalPages]);
 
