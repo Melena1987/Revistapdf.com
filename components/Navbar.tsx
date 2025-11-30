@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { BookOpen, PlusCircle, LogOut } from 'lucide-react';
+import { BookOpen, PlusCircle, LogOut, LogIn } from 'lucide-react';
 import { useAuth } from '../src/store/auth-context';
 
 interface NavbarProps {
@@ -24,7 +24,7 @@ const Navbar: React.FC<NavbarProps> = ({ onUploadClick }) => {
           <span className="text-xl font-bold tracking-tight text-white">REVISTAPDF.COM</span>
         </Link>
         
-        {user && (
+        {user ? (
           <div className="flex items-center gap-4">
             <button 
               onClick={onUploadClick}
@@ -42,6 +42,16 @@ const Navbar: React.FC<NavbarProps> = ({ onUploadClick }) => {
               <LogOut className="w-5 h-5" />
             </button>
           </div>
+        ) : (
+            <div className="flex items-center gap-4">
+                 <Link 
+                    to="/login"
+                    className="flex items-center gap-2 px-6 py-2 bg-white text-dark-900 hover:bg-gray-100 rounded-full font-bold transition-all shadow-lg"
+                 >
+                    <LogIn className="w-4 h-4" />
+                    <span>Iniciar Sesión</span>
+                 </Link>
+            </div>
         )}
       </div>
     </nav>

@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut, Loader2, AlertCircle, ExternalLink } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut, Loader2, AlertCircle, ExternalLink, Sparkles } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { getPdfDocument } from '../services/pdf';
 import { Magazine } from '../types';
 import { PDFPage } from './PDFPage';
+import { useAuth } from '../src/store/auth-context';
 
 interface FlipbookViewerProps {
   magazine: Magazine;
@@ -10,6 +12,9 @@ interface FlipbookViewerProps {
 }
 
 const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) => {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  
   const [pdfDoc, setPdfDoc] = useState<any>(null);
   const [totalPages, setTotalPages] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -144,10 +149,10 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
     <div className="fixed inset-0 z-50 bg-dark-900 flex flex-col h-screen overflow-hidden animate-in fade-in duration-200">
       
       {/* Header */}
-      <div className="h-14 border-b border-white/10 flex items-center justify-between px-4 bg-dark-800 shrink-0 shadow-md z-50">
+      <div className="h-16 border-b border-white/10 flex items-center justify-between px-4 bg-dark-800 shrink-0 shadow-md z-50">
         <div className="flex items-center gap-4">
-            <h1 className="text-white font-medium truncate max-w-[150px] sm:max-w-md text-sm sm:text-base">{magazine.title}</h1>
-            <span className="text-xs text-gray-400 bg-white/5 px-2 py-1 rounded border border-white/5 whitespace-nowrap hidden sm:inline-block">
+            <h1 className="text-white font-medium truncate max-w-[100px] sm:max-w-md text-sm sm:text-base">{magazine.title}</h1>
+            <span className="text-xs text-gray-400 bg-white/5 px-2 py-1 rounded border border-white/5 whitespace-nowrap hidden md:inline-block">
                 {totalPages > 0 ? (
                     isMobile 
                     ? `Pág ${leftPageNum}` 
@@ -157,16 +162,40 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
             </span>
         </div>
         
-        <div className="flex items-center gap-2">
-            <button onClick={() => setZoom(z => Math.max(0.5, z - 0.25))} className="p-2 text-gray-400 hover:text-white" aria-label="Alejar"><ZoomOut className="w-5 h-5"/></button>
-            <span className="text-xs text-gray-500 w-12 text-center hidden sm:inline-block">{Math.round(zoom * 100)}%</span>
-            <button onClick={() => setZoom(z => Math.min(3, z + 0.25))} className="p-2 text-gray-400 hover:text-white" aria-label="Acercar"><ZoomIn className="w-5 h-5"/></button>
-            <div className="w-px h-6 bg-white/10 mx-2"></div>
-            <button onClick={onClose} className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full" aria-label="Cerrar">
+        <div className="flex items-center gap-2 sm:gap-4">
+            
+            {/* CTA for Non-Logged Users */}
+            {!user && (
+                <button 
+                    onClick={() => navigate('/login')}
+                    className="hidden sm:flex items-center gap-2 px-4 py-1.5 bg-gradient-to-r from-brand-600 to-blue-600 hover:from-brand-500 hover:to-blue-500 text-white text-xs sm:text-sm font-medium rounded-full shadow-lg shadow-brand-500/20 transition-all transform hover:scale-105 mr-2"
+                >
+                    <Sparkles className="w-3 h-3 sm:w-4 sm:h-4 text-yellow-300" />
+                    <span>¿Quieres crear tu revista PDF?</span>
+                </button>
+            )}
+
+            <div className="flex items-center bg-dark-900/50 rounded-lg p-1 border border-white/5">
+                <button onClick={() => setZoom(z => Math.max(0.5, z - 0.25))} className="p-1.5 text-gray-400 hover:text-white transition-colors" aria-label="Alejar"><ZoomOut className="w-4 h-4"/></button>
+                <span className="text-xs text-gray-500 w-10 text-center hidden sm:inline-block">{Math.round(zoom * 100)}%</span>
+                <button onClick={() => setZoom(z => Math.min(3, z + 0.25))} className="p-1.5 text-gray-400 hover:text-white transition-colors" aria-label="Acercar"><ZoomIn className="w-4 h-4"/></button>
+            </div>
+
+            <div className="w-px h-6 bg-white/10 mx-1 hidden sm:block"></div>
+            
+            <button onClick={onClose} className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-colors" aria-label="Cerrar">
                 <X className="w-5 h-5" />
             </button>
         </div>
       </div>
+
+      {/* CTA Mobile (Sub-header) */}
+      {!user && (
+         <div className="sm:hidden bg-brand-900/30 border-b border-brand-500/20 py-2 px-4 flex justify-between items-center">
+             <span className="text-xs text-brand-100">Crea tu propio flipbook digital</span>
+             <button onClick={() => navigate('/login')} className="text-xs font-bold text-brand-400 hover:text-brand-300">Empezar</button>
+         </div>
+      )}
 
       {/* Area Principal */}
       <div 

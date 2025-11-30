@@ -41,6 +41,7 @@ const Dashboard: React.FC = () => {
 
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   // Effect to handle direct URL access
   useEffect(() => {
@@ -49,13 +50,19 @@ const Dashboard: React.FC = () => {
       if (mag) {
         setSelectedMagazine(mag);
       } else {
-        navigate('/'); // magazine not found, redirect to home
+        // If not found, stay on dashboard but maybe show error? 
+        // For now just redirect to root only if user is logged in, otherwise stay here (empty state)
+        if (user) navigate('/');
       }
     }
-  }, [id, magazines, getMagazine, navigate, selectedMagazine]);
+  }, [id, magazines, getMagazine, navigate, selectedMagazine, user]);
 
   // Handlers
   const handleOpenUpload = () => {
+    if (!user) {
+        navigate('/login');
+        return;
+    }
     setEditingMagazine(null);
     setUploadModalOpen(true);
   };
@@ -67,6 +74,7 @@ const Dashboard: React.FC = () => {
 
   const handleCloseViewer = () => {
     setSelectedMagazine(null);
+    // Remove ID from URL without refreshing
     navigate('/');
   };
 
@@ -99,7 +107,7 @@ const Dashboard: React.FC = () => {
             
             {magazines.length === 0 && (
                 <div className="col-span-full py-20 text-center text-gray-500">
-                    <p className="text-lg">No hay revistas publicadas aún. ¡Sube la primera!</p>
+                    <p className="text-lg">No hay revistas disponibles.</p>
                 </div>
             )}
         </div>
@@ -143,11 +151,11 @@ const App: React.FC = () => {
         <Router>
             <Routes>
                 <Route path="/login" element={<Login />} />
+                {/* Public Access to View specific ID */}
                 <Route path="/view/:id" element={
-                    <ProtectedRoute>
-                        <MainLayout />
-                    </ProtectedRoute>
+                    <MainLayout />
                 } />
+                {/* Protected Dashboard */}
                 <Route path="/" element={
                     <ProtectedRoute>
                         <MainLayout />

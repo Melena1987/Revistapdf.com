@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { FileText, MoreVertical, Eye, Share2, Edit2, Trash2 } from 'lucide-react';
 import { Magazine } from '../types';
+import { useAuth } from '../src/store/auth-context';
 
 interface MagazineCardProps {
   magazine: Magazine;
@@ -10,6 +11,7 @@ interface MagazineCardProps {
 }
 
 const MagazineCard: React.FC<MagazineCardProps> = ({ magazine, onView, onEdit, onShare }) => {
+  const { user } = useAuth();
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -64,31 +66,33 @@ const MagazineCard: React.FC<MagazineCardProps> = ({ magazine, onView, onEdit, o
           <div className="flex justify-between items-start mb-2">
               <span className="text-xs font-semibold text-brand-400 uppercase tracking-wider">{magazine.category || 'General'}</span>
               
-              {/* Context Menu */}
-              <div className="relative" ref={menuRef}>
-                <button 
-                    onClick={() => setShowMenu(!showMenu)}
-                    className="text-gray-500 hover:text-white p-1 rounded-full hover:bg-white/10 transition-colors"
-                >
-                    <MoreVertical className="w-4 h-4" />
-                </button>
-                
-                {showMenu && (
-                    <div className="absolute right-0 top-full mt-2 w-48 bg-dark-900 border border-white/10 rounded-lg shadow-xl z-20 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                        <button 
-                            onClick={() => { onEdit(magazine); setShowMenu(false); }}
-                            className="w-full px-4 py-2.5 text-left text-sm text-gray-300 hover:bg-brand-600/20 hover:text-brand-400 flex items-center gap-2 transition-colors"
-                        >
-                            <Edit2 className="w-4 h-4" /> Editar Revista
-                        </button>
-                        <button 
-                            className="w-full px-4 py-2.5 text-left text-sm text-gray-300 hover:bg-red-500/20 hover:text-red-400 flex items-center gap-2 transition-colors border-t border-white/5"
-                        >
-                            <Trash2 className="w-4 h-4" /> Eliminar
-                        </button>
-                    </div>
-                )}
-              </div>
+              {/* Context Menu - ONLY FOR LOGGED IN USERS */}
+              {user && (
+                  <div className="relative" ref={menuRef}>
+                    <button 
+                        onClick={() => setShowMenu(!showMenu)}
+                        className="text-gray-500 hover:text-white p-1 rounded-full hover:bg-white/10 transition-colors"
+                    >
+                        <MoreVertical className="w-4 h-4" />
+                    </button>
+                    
+                    {showMenu && (
+                        <div className="absolute right-0 top-full mt-2 w-48 bg-dark-900 border border-white/10 rounded-lg shadow-xl z-20 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                            <button 
+                                onClick={() => { onEdit(magazine); setShowMenu(false); }}
+                                className="w-full px-4 py-2.5 text-left text-sm text-gray-300 hover:bg-brand-600/20 hover:text-brand-400 flex items-center gap-2 transition-colors"
+                            >
+                                <Edit2 className="w-4 h-4" /> Editar Revista
+                            </button>
+                            <button 
+                                className="w-full px-4 py-2.5 text-left text-sm text-gray-300 hover:bg-red-500/20 hover:text-red-400 flex items-center gap-2 transition-colors border-t border-white/5"
+                            >
+                                <Trash2 className="w-4 h-4" /> Eliminar
+                            </button>
+                        </div>
+                    )}
+                  </div>
+              )}
           </div>
           
           <h3 className="text-lg font-bold text-white mb-2 line-clamp-2 leading-tight">{magazine.title}</h3>
