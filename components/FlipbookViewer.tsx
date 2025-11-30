@@ -21,6 +21,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const [isMobile, setIsMobile] = useState(false);
   
+  // Ref movida al contenedor principal que siempre existe para asegurar medición correcta
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Cargar PDF
@@ -168,7 +169,10 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
       </div>
 
       {/* Area Principal */}
-      <div className="flex-1 relative bg-[#1a1d21] flex items-center justify-center overflow-hidden">
+      <div 
+        ref={containerRef}
+        className="flex-1 relative bg-[#1a1d21] flex items-center justify-center overflow-hidden"
+      >
         
         {loading && (
              <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-dark-900/50 backdrop-blur-sm">
@@ -242,7 +246,6 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
         {/* Contenedor del Libro */}
         {!error && totalPages > 0 && (
             <div 
-                ref={containerRef}
                 className="flex items-center justify-center w-full h-full transition-transform duration-200 gap-0"
                 style={{ 
                     transform: `scale(${zoom})`, 
