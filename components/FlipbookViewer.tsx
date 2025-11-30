@@ -29,6 +29,9 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
   // Ref movida al contenedor principal que siempre existe para asegurar medición correcta
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Helper to determine if we are in single view mode (Mobile OR Single Page Document)
+  const showSingleView = isMobile || (totalPages === 1);
+
   // Cargar PDF
   useEffect(() => {
     const loadPdf = async () => {
@@ -75,8 +78,10 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
       const safeWidth = width - paddingX;
       const safeHeight = height - paddingY;
 
-      // En móvil, el slot es todo el ancho. En desktop, es la mitad.
-      const slotWidth = mobile ? safeWidth : safeWidth / 2;
+      // En móvil o si solo hay 1 página, el slot es todo el ancho (centrado). 
+      // En desktop con >1 páginas, es la mitad.
+      const isSingleMode = mobile || (totalPages === 1);
+      const slotWidth = isSingleMode ? safeWidth : safeWidth / 2;
       
       setContainerSize({ width: slotWidth, height: safeHeight });
     };
@@ -85,7 +90,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
     observer.observe(containerRef.current);
 
     return () => observer.disconnect();
-  }, []);
+  }, [totalPages]); // Re-run when totalPages changes to adjust layout for single page docs
 
   // Lógica de navegación unificada
   const goToPrev = useCallback(() => {
@@ -123,12 +128,12 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
   let leftPageNum = -1;
   let rightPageNum = -1;
 
-  if (isMobile) {
-    // Móvil: Solo mostramos la página actual
+  if (showSingleView) {
+    // Modo Single: Solo mostramos la página actual (centrada)
     leftPageNum = currentPage;
     rightPageNum = -1;
   } else {
-    // Escritorio: Modo Libro
+    // Modo Libro (Desktop multipágina)
     if (currentPage === 1) {
         leftPageNum = -1;
         rightPageNum = 1;
@@ -141,7 +146,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
 
   // Estado de botones
   const isFirst = currentPage === 1;
-  const isLast = isMobile 
+  const isLast = showSingleView 
     ? currentPage >= totalPages 
     : (rightPageNum >= totalPages || leftPageNum >= totalPages);
 
@@ -154,7 +159,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
             <h1 className="text-white font-medium truncate max-w-[100px] sm:max-w-md text-sm sm:text-base">{magazine.title}</h1>
             <span className="text-xs text-gray-400 bg-white/5 px-2 py-1 rounded border border-white/5 whitespace-nowrap hidden md:inline-block">
                 {totalPages > 0 ? (
-                    isMobile 
+                    showSingleView 
                     ? `Pág ${leftPageNum}` 
                     : (leftPageNum === -1 ? `Portada (${rightPageNum})` : `Págs ${leftPageNum} - ${rightPageNum > totalPages ? '-' : rightPageNum}`)
                 ) : 'Cargando...'} 
@@ -262,8 +267,8 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
                     <ChevronRight className="w-6 h-6 sm:w-8 sm:h-8" />
                 </button>
 
-                {/* Zonas de clic invisibles en los bordes para facilitar navegación en Desktop */}
-                {!isMobile && !loading && (
+                {/* Zonas de clic invisibles en los bordes para facilitar navegación en Desktop (desactivado en modo SinglePage para no interferir) */}
+                {!showSingleView && !loading && (
                     <>
                         <div onClick={goToPrev} className="absolute inset-y-0 left-0 w-[10%] z-30 cursor-pointer hover:bg-white/5 transition-colors" title="Página anterior" />
                         <div onClick={goToNext} className="absolute inset-y-0 right-0 w-[10%] z-30 cursor-pointer hover:bg-white/5 transition-colors" title="Página siguiente" />
@@ -281,8 +286,8 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
                     transformOrigin: 'center center' 
                 }}
             >
-                 {/* Renderizado Página Izquierda (Solo Desktop) */}
-                 {!isMobile && (
+                 {/* Renderizado Página Izquierda (Solo Desktop multipágina) */}
+                 {!showSingleView && (
                      <div style={{ width: containerSize.width, height: containerSize.height }} className="flex justify-end items-center relative flex-shrink-0">
                         {leftPageNum > 0 && leftPageNum <= totalPages && (
                             <PDFPage 
@@ -297,25 +302,25 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
                      </div>
                  )}
 
-                 {/* Renderizado Página Derecha (Desktop) o Principal (Móvil) */}
+                 {/* Renderizado Página Derecha (Desktop multipágina) o Principal (Single View) */}
                  <div 
                     style={{ width: containerSize.width, height: containerSize.height }} 
-                    className={`flex ${isMobile ? 'justify-center' : 'justify-start'} items-center relative flex-shrink-0`}
+                    className={`flex ${showSingleView ? 'justify-center' : 'justify-start'} items-center relative flex-shrink-0`}
                  >
-                    {(isMobile ? leftPageNum : rightPageNum) > 0 && (isMobile ? leftPageNum : rightPageNum) <= totalPages && (
+                    {(showSingleView ? leftPageNum : rightPageNum) > 0 && (showSingleView ? leftPageNum : rightPageNum) <= totalPages && (
                          <PDFPage 
                             pdfDoc={pdfDoc} 
-                            pageNum={isMobile ? leftPageNum : rightPageNum} 
+                            pageNum={showSingleView ? leftPageNum : rightPageNum} 
                             containerWidth={containerSize.width} 
                             containerHeight={containerSize.height}
                             scale={1}
-                            variant={isMobile ? 'single' : 'right'}
+                            variant={showSingleView ? 'single' : 'right'}
                          />
                     )}
                  </div>
 
-                 {/* Línea central (Solo desktop cuando hay dos páginas visibles) */}
-                 {!isMobile && leftPageNum > 0 && rightPageNum > 0 && rightPageNum <= totalPages && (
+                 {/* Línea central (Solo desktop multipágina cuando hay dos páginas visibles) */}
+                 {!showSingleView && leftPageNum > 0 && rightPageNum > 0 && rightPageNum <= totalPages && (
                      <div className="absolute h-[95%] w-px bg-gradient-to-b from-transparent via-black/40 to-transparent z-10 left-1/2 -ml-px" />
                  )}
             </div>
