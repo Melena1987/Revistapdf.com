@@ -90,8 +90,8 @@ const Dashboard: React.FC = () => {
         
         <div className="container mx-auto px-4 py-8">
         
-        {/* Grid: Much denser columns for smaller cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3">
+        {/* Grid: Ultra dense columns for large icon feel */}
+        <div className="grid grid-cols-2 min-[420px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12 gap-3">
             {magazines.map((mag) => (
                 <MagazineCard 
                     key={mag.id} 
