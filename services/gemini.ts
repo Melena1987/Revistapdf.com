@@ -18,7 +18,9 @@ const fileToGenerativePart = async (file: File): Promise<string> => {
 
 export const analyzePdf = async (file: File): Promise<AIAnalysisResult> => {
   try {
-    const apiKey = process.env.API_KEY;
+    // Ensure we don't crash if process is somehow not defined despite polyfill
+    const apiKey = typeof process !== 'undefined' ? process.env.API_KEY : undefined;
+
     if (!apiKey) {
       console.warn("API Key not found, returning mock data");
       return {
