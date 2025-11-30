@@ -2,15 +2,21 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 
-// Polyfill process for browser environment to prevent 'process is not defined' errors
-if (typeof process === 'undefined') {
-  (window as any).process = {
-    env: {
-      // Attempt to capture Vite env vars if available, otherwise default to empty
-      API_KEY: (import.meta as any).env?.VITE_API_KEY || (import.meta as any).env?.API_KEY || '',
-      NODE_ENV: 'production'
-    }
-  };
+// Robust polyfill for process.env in browser environments
+if (typeof window !== 'undefined') {
+  const win = window as any;
+  if (!win.process) win.process = { env: {} };
+  if (!win.process.env) win.process.env = {};
+  
+  // Prioritize existing process.env.API_KEY, fallback to Vite/Meta env vars
+  if (!win.process.env.API_KEY) {
+    win.process.env.API_KEY = (import.meta as any).env?.VITE_API_KEY || (import.meta as any).env?.API_KEY || '';
+  }
+  
+  // Default NODE_ENV
+  if (!win.process.env.NODE_ENV) {
+    win.process.env.NODE_ENV = 'production';
+  }
 }
 
 const rootElement = document.getElementById('root');

@@ -21,6 +21,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, magazineToEd
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
+  const [isAiSuggested, setIsAiSuggested] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -35,6 +36,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, magazineToEd
             setPreviewUrl(magazineToEdit.coverImage || '');
             setStep('review'); // Skip upload step
             setFile(null); // No new file yet
+            setIsAiSuggested(false);
         } else {
             // Create Mode
             setStep('upload');
@@ -43,6 +45,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, magazineToEd
             setTitle('');
             setDescription('');
             setCategory('');
+            setIsAiSuggested(false);
         }
     }
   }, [isOpen, magazineToEdit]);
@@ -66,6 +69,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, magazineToEd
         setTitle(analysis.title);
         setDescription(analysis.description);
         setCategory(analysis.category);
+        setIsAiSuggested(!!analysis.isGenerated);
         
       } catch (error) {
         console.error("Error processing file", error);
@@ -190,7 +194,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, magazineToEd
                  <div>
                     <div className="flex items-center gap-2 mb-1">
                         <label className="text-sm font-medium text-gray-300">Título</label>
-                        {file && (
+                        {isAiSuggested && (
                             <span className="text-xs text-brand-400 flex items-center gap-1 bg-brand-500/10 px-2 py-0.5 rounded-full">
                                 <Check className="w-3 h-3" /> Sugerido por IA
                             </span>
@@ -221,6 +225,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, magazineToEd
                      value={description}
                      onChange={(e) => setDescription(e.target.value)}
                      className="w-full bg-dark-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none transition-all resize-none"
+                     placeholder="Escribe una descripción..."
                    />
                  </div>
               </div>

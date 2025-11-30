@@ -20,4 +20,5 @@ export interface AIAnalysisResult {
   title: string;
   description: string;
   category: string;
+  isGenerated?: boolean;
 }

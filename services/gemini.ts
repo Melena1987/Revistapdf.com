@@ -25,8 +25,9 @@ export const analyzePdf = async (file: File): Promise<AIAnalysisResult> => {
       console.warn("API Key not found, returning mock data");
       return {
         title: file.name.replace('.pdf', ''),
-        description: "Descripción generada automáticamente no disponible (falta API Key).",
-        category: "General"
+        description: "",
+        category: "General",
+        isGenerated: false
       };
     }
 
@@ -65,15 +66,17 @@ export const analyzePdf = async (file: File): Promise<AIAnalysisResult> => {
     const text = response.text;
     if (!text) throw new Error("No response from AI");
 
-    return JSON.parse(text) as AIAnalysisResult;
+    const result = JSON.parse(text);
+    return { ...result, isGenerated: true };
 
   } catch (error) {
     console.error("Error analyzing PDF:", error);
     // Fallback if AI fails
     return {
       title: file.name.replace('.pdf', ''),
-      description: "No se pudo generar una descripción automática.",
-      category: "Uncategorized"
+      description: "",
+      category: "General",
+      isGenerated: false
     };
   }
 };
