@@ -1,7 +1,122 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut } from 'lucide-react';
-import { renderPageToCanvas, getPdfDocument } from '../services/pdf';
+import { ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut, Loader2 } from 'lucide-react';
+import { getPdfDocument } from '../services/pdf';
 import { Magazine } from '../types';
+
+// --- Sub-componente para renderizar una página individual ---
+interface PDFPageProps {
+  pdfDoc: any;
+  pageNum: number;
+  containerWidth: number;
+  containerHeight: number;
+  scale: number; // Zoom del usuario
+  className?: string;
+}
+
+const PDFPage: React.FC<PDFPageProps> = React.memo(({ pdfDoc, pageNum, containerWidth, containerHeight, scale, className = "" }) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const renderTaskRef = useRef<any>(null);
+  const [isRendering, setIsRendering] = useState(false);
+  // Guardamos las dimensiones CSS exactas para centrar el canvas
+  const [pageDims, setPageDims] = useState<{ width: number; height: number } | null>(null);
+
+  useEffect(() => {
+    if (!pdfDoc || !canvasRef.current || pageNum <= 0 || pageNum > pdfDoc.numPages || containerWidth <= 0 || containerHeight <= 0) return;
+
+    const render = async () => {
+      try {
+        setIsRendering(true);
+        if (renderTaskRef.current) {
+            renderTaskRef.current.cancel();
+        }
+
+        const page = await pdfDoc.getPage(pageNum);
+        
+        // 1. Obtener viewport base para conocer las proporciones reales del PDF
+        const baseViewport = page.getViewport({ scale: 1 });
+        
+        // 2. Calcular el factor de escala para que encaje ("contain") en el contenedor disponible
+        const widthScale = containerWidth / baseViewport.width;
+        const heightScale = containerHeight / baseViewport.height;
+        // Elegimos el menor para asegurar que todo el contenido es visible sin deformarse
+        const fitScale = Math.min(widthScale, heightScale);
+        
+        // 3. Aplicar zoom del usuario y densidad de píxeles (Retina display support)
+        const dpr = window.devicePixelRatio || 1;
+        const totalScale = fitScale * scale; 
+        
+        // Viewport final para el renderizado
+        const scaledViewport = page.getViewport({ scale: totalScale * dpr });
+
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        // Dimensiones del buffer (resolución física)
+        canvas.width = scaledViewport.width;
+        canvas.height = scaledViewport.height;
+
+        // Dimensiones visuales CSS (resolución lógica)
+        const cssWidth = scaledViewport.width / dpr;
+        const cssHeight = scaledViewport.height / dpr;
+        setPageDims({ width: cssWidth, height: cssHeight });
+
+        const context = canvas.getContext('2d');
+        if (!context) return;
+
+        const renderContext = {
+          canvasContext: context,
+          viewport: scaledViewport,
+        };
+
+        const task = page.render(renderContext);
+        renderTaskRef.current = task;
+        await task.promise;
+        setIsRendering(false);
+      } catch (error: any) {
+        if (error.name !== 'RenderingCancelledException') {
+            console.error(`Error rendering page ${pageNum}:`, error);
+        }
+        setIsRendering(false);
+      }
+    };
+
+    render();
+
+    return () => {
+        if (renderTaskRef.current) {
+            renderTaskRef.current.cancel();
+        }
+    };
+  }, [pdfDoc, pageNum, containerWidth, containerHeight, scale]);
+
+  if (pageNum <= 0 || (pdfDoc && pageNum > pdfDoc.numPages)) {
+    return <div className={`w-full h-full ${className}`} />;
+  }
+
+  return (
+    <div className={`relative flex items-center ${className}`} style={{ width: '100%', height: '100%' }}>
+      {isRendering && (
+          <div className="absolute inset-0 flex items-center justify-center z-10">
+              <Loader2 className="w-8 h-8 text-brand-500 animate-spin" />
+          </div>
+      )}
+      <canvas 
+        ref={canvasRef} 
+        className="shadow-xl bg-white block select-none transition-transform duration-200"
+        style={{
+            // Aplicamos dimensiones explícitas para respetar aspect ratio
+            width: pageDims ? `${pageDims.width}px` : 'auto',
+            height: pageDims ? `${pageDims.height}px` : 'auto',
+            maxWidth: '100%',
+            maxHeight: '100%',
+            objectFit: 'contain'
+        }}
+      />
+    </div>
+  );
+});
+
+// --- Componente Principal ---
 
 interface FlipbookViewerProps {
   magazine: Magazine;
@@ -10,297 +125,247 @@ interface FlipbookViewerProps {
 
 const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) => {
   const [pdfDoc, setPdfDoc] = useState<any>(null);
-  const [currentPage, setCurrentPage] = useState(1); // The page number on the right
   const [totalPages, setTotalPages] = useState(0);
-  const [scale, setScale] = useState(1);
-  const [bookAspectRatio, setBookAspectRatio] = useState('1.414'); // Default A4 spread
-
-  const [turn, setTurn] = useState({
-    isActive: false,
-    pageNumber: 0, // front page of turning sheet
-    progress: 0, // angle of rotation
-    direction: 'next' as 'next' | 'prev',
-  });
-
-  const containerRef = useRef<HTMLDivElement>(null);
-  const bookRef = useRef<HTMLDivElement>(null);
-  const canvasLeftRef = useRef<HTMLCanvasElement>(null);
-  const canvasRightRef = useRef<HTMLCanvasElement>(null);
-  const canvasTurnFrontRef = useRef<HTMLCanvasElement>(null);
-  const canvasTurnBackRef = useRef<HTMLCanvasElement>(null);
+  const [loading, setLoading] = useState(true);
   
-  const animationRequestRef = useRef<number | null>(null);
-  const dragState = useRef<{ isDragging: boolean; startX: number; } | null>(null);
+  // Estado de navegación: Usamos 'currentPage' (1-based) como referencia principal
+  const [currentPage, setCurrentPage] = useState(1);
+  const [zoom, setZoom] = useState(1);
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+  const [isMobile, setIsMobile] = useState(false);
+  
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  // Load PDF Document and calculate aspect ratio
+  // Cargar PDF
   useEffect(() => {
     const loadPdf = async () => {
+      setLoading(true);
       try {
         const doc = await getPdfDocument(magazine.pdfUrl);
         setPdfDoc(doc);
         setTotalPages(doc.numPages);
-        if (doc.numPages > 0) {
-            const page = await doc.getPage(1);
-            const viewport = page.getViewport({ scale: 1 });
-            setBookAspectRatio(String((2 * viewport.width) / viewport.height));
-        }
       } catch (error) {
-        console.error("Failed to load PDF", error);
+        console.error("Error loading PDF", error);
+      } finally {
+        setLoading(false);
       }
     };
     loadPdf();
   }, [magazine.pdfUrl]);
 
-  // Render static pages
-  const renderStaticPages = useCallback(async () => {
-    if (!pdfDoc || !bookRef.current) return;
-
-    const width = bookRef.current.clientWidth / 2;
-    const leftPageNum = currentPage > 1 ? currentPage - 1 : 0;
-    const rightPageNum = currentPage;
-    
-    const clearCanvas = (canvas: HTMLCanvasElement | null) => {
-        if (!canvas) return;
-        const ctx = canvas.getContext('2d');
-        ctx?.clearRect(0, 0, canvas.width, canvas.height);
-    };
-
-    clearCanvas(canvasLeftRef.current);
-    clearCanvas(canvasRightRef.current);
-    
-    if (leftPageNum > 0 && canvasLeftRef.current) {
-      await renderPageToCanvas(pdfDoc, leftPageNum, canvasLeftRef.current, width);
-    }
-    if (rightPageNum > 0 && rightPageNum <= totalPages && canvasRightRef.current) {
-      await renderPageToCanvas(pdfDoc, rightPageNum, canvasRightRef.current, width);
-    }
-  }, [pdfDoc, currentPage, totalPages]);
-
+  // Resize Observer: Detecta móvil y tamaño disponible para renderizar
   useEffect(() => {
-    renderStaticPages();
-    window.addEventListener('resize', renderStaticPages);
-    return () => window.removeEventListener('resize', renderStaticPages);
-  }, [renderStaticPages]);
+    if (!containerRef.current) return;
 
-  // Animation loop
-  useEffect(() => {
-    if (!turn.isActive) return;
-    let frameId: number;
-    const animate = () => {
-      if (animationRequestRef.current === null) return;
-      setTurn(prev => {
-        const targetProgress = animationRequestRef.current!;
-        const newProgress = prev.progress + (targetProgress - prev.progress) * 0.15;
-        
-        if (Math.abs(targetProgress - newProgress) < 0.5) {
-          if (targetProgress === -180) setCurrentPage(p => p + 2);
-          animationRequestRef.current = null;
-          return { ...prev, isActive: false, progress: targetProgress };
-        }
-        return { ...prev, progress: newProgress };
-      });
-      frameId = requestAnimationFrame(animate);
-    };
-    frameId = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(frameId);
-  }, [turn.isActive]);
+    const measure = (entries: ResizeObserverEntry[]) => {
+      const entry = entries[0];
+      if (!entry) return;
 
-  const startTurn = async (direction: 'next' | 'prev') => {
-    if (turn.isActive) return;
+      const { width, height } = entry.contentRect;
+      if (width === 0 || height === 0) return;
 
-    const pageToTurn = direction === 'next' ? currentPage : currentPage - 2;
-    if (pageToTurn < 1 && direction === 'prev') return;
-    if (pageToTurn >= totalPages && direction === 'next') return;
+      // Detectar móvil (breakpoint 768px)
+      const mobile = width < 768;
+      setIsMobile(mobile);
 
-    setTurn({
-      isActive: true,
-      pageNumber: pageToTurn,
-      progress: direction === 'next' ? 0 : -180,
-      direction,
-    });
-    
-    if (direction === 'prev') {
-        setCurrentPage(p => p - 2);
-    }
-
-    if (bookRef.current) {
-        const width = bookRef.current.clientWidth / 2;
-        // Render front of turning page
-        if (canvasTurnFrontRef.current) {
-            await renderPageToCanvas(pdfDoc, pageToTurn, canvasTurnFrontRef.current, width);
-        }
-        // Render back of turning page
-        if (pageToTurn + 1 <= totalPages && canvasTurnBackRef.current) {
-            await renderPageToCanvas(pdfDoc, pageToTurn + 1, canvasTurnBackRef.current, width);
-        } else if (canvasTurnBackRef.current) {
-            const ctx = canvasTurnBackRef.current.getContext('2d');
-            ctx?.clearRect(0, 0, canvasTurnBackRef.current.width, canvasTurnBackRef.current.height);
-        }
-    }
-  };
-
-  const onDragStart = (e: React.MouseEvent, direction: 'next' | 'prev') => {
-    if (turn.isActive) return;
-    dragState.current = { isDragging: true, startX: e.clientX };
-    startTurn(direction);
-    e.preventDefault();
-  };
-
-  useEffect(() => {
-    const onDragMove = (e: MouseEvent) => {
-      if (!dragState.current?.isDragging || !bookRef.current) return;
-      const { startX } = dragState.current;
-      const bookWidth = bookRef.current.clientWidth;
-      const deltaX = e.clientX - startX;
+      // Calcular espacio para CADA slot de página
+      const paddingX = mobile ? 20 : 60; // Margen lateral total
+      const paddingY = 40; // Margen vertical total
       
-      setTurn(t => {
-        const progressRatio = deltaX / (bookWidth / 2);
-        let rotation = t.direction === 'next'
-          ? Math.max(-180, Math.min(0, progressRatio * 180))
-          : Math.max(-180, Math.min(0, -180 + progressRatio * -180));
-        return {...t, progress: rotation};
-      });
+      const safeWidth = width - paddingX;
+      const safeHeight = height - paddingY;
+
+      // En móvil, el slot es todo el ancho. En desktop, es la mitad.
+      const slotWidth = mobile ? safeWidth : safeWidth / 2;
+      
+      setContainerSize({ width: slotWidth, height: safeHeight });
     };
 
-    const onDragEnd = () => {
-      if (!dragState.current?.isDragging) return;
-      dragState.current = null;
-      setTurn(t => {
-        if (t.direction === 'next') {
-            animationRequestRef.current = t.progress < -90 ? -180 : 0;
-        } else {
-            animationRequestRef.current = t.progress < -90 ? -180 : 0;
-        }
-        // if animation snaps back, reset currentPage for prev turn
-        if (animationRequestRef.current === 0 && t.direction === 'prev') {
-            setCurrentPage(p => p + 2);
-        }
-        return t;
-      });
+    const observer = new ResizeObserver(measure);
+    observer.observe(containerRef.current);
+
+    return () => observer.disconnect();
+  }, []);
+
+  // Lógica de navegación unificada
+  const goToPrev = useCallback(() => {
+    setCurrentPage(p => {
+        if (isMobile) return Math.max(1, p - 1);
+        // Desktop: Retroceder 2 páginas (o ir a portada)
+        // Si estamos en 3 (Spread 2-3), ir a 1.
+        // Si estamos en 1, quedarse en 1.
+        if (p === 1) return 1;
+        const target = p - 2; // Retroceder un spread
+        // Si el target cae en par (2), queremos que sea el inicio del spread (2,3).
+        // Si el target cae en 0 o 1, ir a 1.
+        return Math.max(1, target % 2 === 0 ? target : target - 1); 
+    });
+  }, [isMobile]);
+
+  const goToNext = useCallback(() => {
+    setCurrentPage(p => {
+        if (isMobile) return Math.min(totalPages, p + 1);
+        // Desktop: Avanzar 2 páginas
+        // Si estamos en 1 (Portada), ir a 2 (Spread 2-3).
+        // Si estamos en 2 (Spread 2-3), ir a 4 (Spread 4-5).
+        const target = p === 1 ? 2 : (p % 2 === 0 ? p + 2 : p + 1);
+        if (target > totalPages) return p;
+        return target;
+    });
+  }, [isMobile, totalPages]);
+
+  // Manejo de teclado
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') goToPrev();
+      if (e.key === 'ArrowRight') goToNext();
+      if (e.key === 'Escape') onClose();
     };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [goToPrev, goToNext, onClose]);
+
+  // Calcular qué páginas mostrar
+  let leftPageNum = -1;
+  let rightPageNum = -1;
+
+  if (isMobile) {
+    // Móvil: Solo mostramos la página actual
+    leftPageNum = currentPage;
+    rightPageNum = -1;
+  } else {
+    // Escritorio: Modo Libro
+    // Si currentPage es 1 -> Portada (L: null, R: 1)
+    // Si currentPage > 1 -> Asumimos spreads estándar (2-3, 4-5, etc)
+    // Ajustamos currentPage para que apunte al inicio del spread correcto
     
-    if (dragState.current?.isDragging) {
-      window.addEventListener('mousemove', onDragMove);
-      window.addEventListener('mouseup', onDragEnd);
-      window.addEventListener('mouseleave', onDragEnd);
+    if (currentPage === 1) {
+        leftPageNum = -1;
+        rightPageNum = 1;
+    } else {
+        // Asegurar que empezamos en par. Si estamos en 3, realmente estamos viendo spread 2-3.
+        const startSpread = currentPage % 2 === 0 ? currentPage : currentPage - 1;
+        leftPageNum = startSpread;
+        rightPageNum = startSpread + 1;
     }
-    return () => {
-      window.removeEventListener('mousemove', onDragMove);
-      window.removeEventListener('mouseup', onDragEnd);
-      window.removeEventListener('mouseleave', onDragEnd);
-    };
-  }, [dragState.current?.isDragging]);
+  }
 
-  const changePage = (direction: 'next' | 'prev') => {
-    if (turn.isActive) return;
-    if (direction === 'next' && currentPage >= totalPages) return;
-    if (direction === 'prev' && currentPage <= 1) return;
-
-    animationRequestRef.current = direction === 'next' ? -180 : 0;
-    startTurn(direction);
-  };
+  // Estado de botones
+  const isFirst = currentPage === 1;
+  const isLast = isMobile 
+    ? currentPage >= totalPages 
+    : (rightPageNum >= totalPages || leftPageNum >= totalPages);
 
   return (
-    <div className="fixed inset-0 z-50 bg-dark-900 flex flex-col h-screen" role="dialog" aria-modal="true" aria-label="Visor de Revistas">
-      {/* Viewer Header */}
-      <div className="h-14 border-b border-white/10 flex items-center justify-between px-4 bg-dark-800 shrink-0">
+    <div className="fixed inset-0 z-50 bg-dark-900 flex flex-col h-screen overflow-hidden animate-in fade-in duration-200">
+      
+      {/* Header */}
+      <div className="h-14 border-b border-white/10 flex items-center justify-between px-4 bg-dark-800 shrink-0 shadow-md z-50">
         <div className="flex items-center gap-4">
-            <h1 className="text-white font-medium truncate max-w-xs sm:max-w-sm">{magazine.title}</h1>
-            <span className="text-xs text-gray-400 bg-white/5 px-2 py-1 rounded">
-                Pág. {Math.min(currentPage, totalPages)} / {totalPages}
+            <h1 className="text-white font-medium truncate max-w-[150px] sm:max-w-md text-sm sm:text-base">{magazine.title}</h1>
+            <span className="text-xs text-gray-400 bg-white/5 px-2 py-1 rounded border border-white/5 whitespace-nowrap hidden sm:inline-block">
+                {isMobile 
+                  ? `Pág ${leftPageNum}` 
+                  : (leftPageNum === -1 ? `Portada (${rightPageNum})` : `Págs ${leftPageNum} - ${rightPageNum > totalPages ? '-' : rightPageNum}`)
+                } / {totalPages}
             </span>
         </div>
         
         <div className="flex items-center gap-2">
-            <button onClick={() => setScale(s => Math.min(s + 0.2, 2))} className="p-2 text-gray-400 hover:text-white" aria-label="Acercar"><ZoomIn className="w-5 h-5"/></button>
-            <button onClick={() => setScale(s => Math.max(s - 0.2, 0.5))} className="p-2 text-gray-400 hover:text-white" aria-label="Alejar"><ZoomOut className="w-5 h-5"/></button>
+            <button onClick={() => setZoom(z => Math.max(0.5, z - 0.25))} className="p-2 text-gray-400 hover:text-white" aria-label="Alejar"><ZoomOut className="w-5 h-5"/></button>
+            <span className="text-xs text-gray-500 w-12 text-center hidden sm:inline-block">{Math.round(zoom * 100)}%</span>
+            <button onClick={() => setZoom(z => Math.min(3, z + 0.25))} className="p-2 text-gray-400 hover:text-white" aria-label="Acercar"><ZoomIn className="w-5 h-5"/></button>
             <div className="w-px h-6 bg-white/10 mx-2"></div>
-            <button onClick={onClose} className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full" aria-label="Cerrar Visor">
+            <button onClick={onClose} className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full" aria-label="Cerrar">
                 <X className="w-5 h-5" />
             </button>
         </div>
       </div>
 
-      {/* Book Container */}
-      <div ref={containerRef} className="flex-1 flex items-center justify-center p-4 overflow-hidden relative bg-black/50">
-        <button 
-            onClick={() => changePage('prev')}
-            disabled={currentPage <= 1 || turn.isActive}
-            className="absolute left-4 z-20 p-3 rounded-full bg-dark-800/80 text-white hover:bg-brand-600 disabled:opacity-30 disabled:hover:bg-dark-800/80 transition-all backdrop-blur-sm"
-            aria-label="Página Anterior"
-        > <ChevronLeft className="w-6 h-6" /> </button>
-        <button 
-            onClick={() => changePage('next')}
-            disabled={currentPage >= totalPages || turn.isActive}
-            className="absolute right-4 z-20 p-3 rounded-full bg-dark-800/80 text-white hover:bg-brand-600 disabled:opacity-30 disabled:hover:bg-dark-800/80 transition-all backdrop-blur-sm"
-            aria-label="Página Siguiente"
-        > <ChevronRight className="w-6 h-6" /> </button>
+      {/* Area Principal */}
+      <div className="flex-1 relative bg-[#1a1d21] flex items-center justify-center overflow-hidden">
+        
+        {loading && (
+             <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-dark-900/50 backdrop-blur-sm">
+                <Loader2 className="w-10 h-10 text-brand-500 animate-spin mb-4" />
+                <span className="text-white font-medium">Cargando revista...</span>
+             </div>
+        )}
 
+        {/* Botones de Navegación */}
+        <button 
+            onClick={goToPrev}
+            disabled={isFirst}
+            className="absolute left-2 sm:left-6 z-40 p-2 sm:p-3 rounded-full bg-dark-900/90 text-white hover:bg-brand-600 disabled:opacity-0 disabled:pointer-events-none transition-all shadow-xl border border-white/10"
+        >
+            <ChevronLeft className="w-6 h-6 sm:w-8 sm:h-8" />
+        </button>
+
+        <button 
+            onClick={goToNext}
+            disabled={isLast}
+            className="absolute right-2 sm:right-6 z-40 p-2 sm:p-3 rounded-full bg-dark-900/90 text-white hover:bg-brand-600 disabled:opacity-0 disabled:pointer-events-none transition-all shadow-xl border border-white/10"
+        >
+            <ChevronRight className="w-6 h-6 sm:w-8 sm:h-8" />
+        </button>
+
+        {/* Zonas de clic invisibles en los bordes para facilitar navegación en Desktop */}
+        {!isMobile && !loading && (
+            <>
+                <div onClick={goToPrev} className="absolute inset-y-0 left-0 w-[10%] z-30 cursor-pointer hover:bg-white/5 transition-colors" title="Página anterior" />
+                <div onClick={goToNext} className="absolute inset-y-0 right-0 w-[10%] z-30 cursor-pointer hover:bg-white/5 transition-colors" title="Página siguiente" />
+            </>
+        )}
+
+        {/* Contenedor del Libro */}
         <div 
-            ref={bookRef}
-            className="relative flex shadow-2xl transition-transform duration-300 preserve-3d"
+            ref={containerRef}
+            className="flex items-center justify-center w-full h-full transition-transform duration-200"
             style={{ 
-                maxHeight: '85vh', 
-                maxWidth: '95vw',
-                aspectRatio: bookAspectRatio,
-                transform: `scale(${scale})`,
-                perspective: '2500px'
+                // Aplicamos zoom al contenedor
+                transform: `scale(${zoom})`, 
+                transformOrigin: 'center center' 
             }}
         >
-            <div className="absolute left-1/2 top-0 bottom-0 w-8 -ml-4 bg-gradient-to-r from-black/0 via-black/20 to-black/0 z-10 pointer-events-none"></div>
+             {/* Renderizado Página Izquierda (Solo Desktop) */}
+             {!isMobile && (
+                 <div style={{ width: containerSize.width, height: containerSize.height }} className="flex justify-end items-center relative">
+                    {leftPageNum > 0 && leftPageNum <= totalPages && (
+                        <PDFPage 
+                            pdfDoc={pdfDoc} 
+                            pageNum={leftPageNum} 
+                            containerWidth={containerSize.width} 
+                            containerHeight={containerSize.height} 
+                            scale={1} // El zoom ya se aplica al padre, pasamos 1 para cálculo relativo
+                            className="origin-right justify-end"
+                        />
+                    )}
+                 </div>
+             )}
 
-            {/* Static Left Page */}
-            <div className="w-1/2 h-full bg-white relative overflow-hidden flex items-center justify-center">
-                <canvas ref={canvasLeftRef} className="max-w-full max-h-full object-contain" />
-                {currentPage - 1 <= 0 && <div className="absolute inset-0 bg-gray-100" />}
-                 {!turn.isActive && currentPage > 1 && (
-                    <div className="corner-hotspot corner-hotspot-left" onMouseDown={(e) => onDragStart(e, 'prev')} />
-                 )}
-            </div>
-
-            {/* Static Right Page */}
-            <div className="w-1/2 h-full bg-white relative overflow-hidden flex items-center justify-center">
-                <canvas ref={canvasRightRef} className="max-w-full max-h-full object-contain" />
-                {currentPage > totalPages && <div className="absolute inset-0 bg-gray-100" />}
-                {!turn.isActive && currentPage <= totalPages && (
-                    <div className="corner-hotspot corner-hotspot-right" onMouseDown={(e) => onDragStart(e, 'next')} />
+             {/* Renderizado Página Derecha (Desktop) o Principal (Móvil) */}
+             <div 
+                style={{ width: containerSize.width, height: containerSize.height }} 
+                className={`flex ${isMobile ? 'justify-center' : 'justify-start'} items-center relative`}
+             >
+                {(isMobile ? leftPageNum : rightPageNum) > 0 && (isMobile ? leftPageNum : rightPageNum) <= totalPages && (
+                     <PDFPage 
+                        pdfDoc={pdfDoc} 
+                        pageNum={isMobile ? leftPageNum : rightPageNum} 
+                        containerWidth={containerSize.width} 
+                        containerHeight={containerSize.height}
+                        scale={1}
+                        className={isMobile ? "origin-center justify-center" : "origin-left justify-start"}
+                     />
                 )}
-            </div>
+             </div>
 
-            {/* The Turning Page */}
-            {turn.isActive && (
-                <div 
-                  className="absolute top-0 w-1/2 h-full preserve-3d"
-                  style={{
-                    left: turn.direction === 'next' ? '50%' : 'auto',
-                    right: turn.direction === 'prev' ? '50%' : 'auto',
-                    transformOrigin: turn.direction === 'next' ? 'left center' : 'right center',
-                    transform: `rotateY(${turn.progress}deg)`
-                  }}
-                >
-                    <div className="page-face bg-white flex items-center justify-center">
-                        <canvas ref={canvasTurnFrontRef} className="max-w-full max-h-full object-contain" />
-                    </div>
-                    <div className="page-face back-face bg-white flex items-center justify-center">
-                        <canvas ref={canvasTurnBackRef} className="max-w-full max-h-full object-contain" />
-                    </div>
-                    <div 
-                      className="page-shadow"
-                      style={{
-                          background: `linear-gradient(to ${turn.direction === 'next' ? 'left' : 'right'}, rgba(0,0,0,0.5), transparent)`,
-                          opacity: Math.sin(Math.abs(turn.progress) * (Math.PI / 180))
-                      }}
-                    />
-                    <div 
-                      className="page-highlight"
-                      style={{
-                          background: `linear-gradient(to ${turn.direction === 'next' ? 'right' : 'left'}, rgba(255,255,255,0.2), transparent)`,
-                          opacity: Math.sin(Math.abs(turn.progress) * (Math.PI / 180)) * 0.5
-                      }}
-                    />
-                </div>
-            )}
+             {/* Línea central (Solo desktop cuando hay dos páginas visibles) */}
+             {!isMobile && leftPageNum > 0 && rightPageNum > 0 && rightPageNum <= totalPages && (
+                 <div className="absolute h-[95%] w-px bg-gradient-to-b from-transparent via-black/40 to-transparent z-10" />
+             )}
         </div>
+
       </div>
     </div>
   );
