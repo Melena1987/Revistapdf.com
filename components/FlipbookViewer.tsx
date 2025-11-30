@@ -37,9 +37,11 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
   // Determinamos si debemos usar la vista centrada (Single View)
   // 1. Es Móvil
   // 2. El documento solo tiene 1 página
-  // 3. Estamos en la página 1 (Portada), incluso si hay más páginas
+  // 3. Estamos en la página 1 (Portada)
+  // 4. Estamos en la última página (Contraportada)
   const isCover = currentPage === 1;
-  const useSingleView = isMobile || (totalPages === 1) || isCover;
+  const isBackCover = totalPages > 1 && currentPage === totalPages;
+  const useSingleView = isMobile || (totalPages === 1) || isCover || isBackCover;
 
   // Cargar PDF
   useEffect(() => {
@@ -102,8 +104,21 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
   const goToPrev = useCallback(() => {
     setCurrentPage(p => {
         if (isMobile) return Math.max(1, p - 1);
+        if (p === 1) return 1;
         
-        // En Desktop:
+        // Si estamos en la contraportada (vista simple), al volver queremos ver el último spread.
+        if (p === totalPages && totalPages > 1) {
+            // Si Total es impar (ej: 5). Spread anterior es 4-5? No, queremos 4(Izq)-5(Der) antes de cerrar.
+            // Si p=5. Queremos ir al spread donde 4 es la página izquierda.
+            // Si Total es par (ej: 4). Spread anterior es 2-3. p=4. Queremos ir a 2.
+            
+            // Si es impar, el spread anterior comienza en p-1 (ej: ir a 4 para ver 4-5).
+            if (p % 2 !== 0) return p - 1;
+            // Si es par, el spread anterior comienza en p-2 (ej: ir a 2 para ver 2-3).
+            return p - 2;
+        }
+
+        // En Desktop standard:
         // Si estamos en página 2 o 3, volver nos lleva a la 1 (Portada centrada)
         if (p <= 3) return 1;
         
@@ -112,7 +127,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
         // Aseguramos que caiga en el inicio del spread (par)
         return target % 2 === 0 ? target : target - 1; 
     });
-  }, [isMobile]);
+  }, [isMobile, totalPages]);
 
   const goToNext = useCallback(() => {
     setCurrentPage(p => {
@@ -122,9 +137,14 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
         // Si estamos en portada (1), vamos a 2 (que iniciará el spread 2-3)
         if (p === 1) return 2;
         
-        // Si estamos en spread, avanzamos 2
+        // Calculamos el siguiente salto estándar (spread)
         const target = p % 2 === 0 ? p + 2 : p + 1;
-        if (target > totalPages) return p;
+        
+        // Si el salto nos lleva a la última página o más allá, forzamos ir a la última página (Contraportada centrada)
+        if (target >= totalPages) {
+            return totalPages;
+        }
+
         return target;
     });
   }, [isMobile, totalPages]);
@@ -146,11 +166,11 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
 
   if (useSingleView) {
     // Modo Single: Mostramos la página actual centrada
-    // (Puede ser portada P1, o cualquier página en móvil)
+    // (Portada P1, Contraportada P-Ultima, o cualquier página en móvil)
     leftPageNum = currentPage; 
     rightPageNum = -1;
   } else {
-    // Modo Libro (Desktop multipágina, excluyendo portada)
+    // Modo Libro (Desktop multipágina intermedio)
     // El spread siempre empieza en par (2, 4, 6...) a la izquierda
     const startSpread = currentPage % 2 === 0 ? currentPage : currentPage - 1;
     leftPageNum = startSpread;
@@ -159,12 +179,22 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
 
   // Estado de botones
   const isFirst = currentPage === 1;
-  const isLast = useSingleView 
-    ? currentPage >= totalPages 
-    : (rightPageNum >= totalPages || leftPageNum >= totalPages);
+  const isLast = currentPage === totalPages;
 
   // Slot actual (ancho)
   const currentSlotWidth = useSingleView ? layoutDims.singleWidth : layoutDims.doubleWidth;
+
+  // Helper para el título de la página
+  const getPageLabel = () => {
+    if (totalPages === 0) return 'Cargando...';
+    if (useSingleView) {
+        if (currentPage === 1) return 'Portada';
+        if (currentPage === totalPages && totalPages > 1) return 'Contraportada';
+        return `Pág ${currentPage}`;
+    }
+    const endPage = rightPageNum > totalPages ? '-' : rightPageNum;
+    return `Págs ${leftPageNum} - ${endPage}`;
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-dark-900 flex flex-col h-screen overflow-hidden animate-in fade-in duration-200">
@@ -174,11 +204,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
         <div className="flex items-center gap-4">
             <h1 className="text-white font-medium truncate max-w-[100px] sm:max-w-md text-sm sm:text-base">{magazine.title}</h1>
             <span className="text-xs text-gray-400 bg-white/5 px-2 py-1 rounded border border-white/5 whitespace-nowrap hidden md:inline-block">
-                {totalPages > 0 ? (
-                    useSingleView 
-                    ? (currentPage === 1 ? `Portada` : `Pág ${currentPage}`)
-                    : `Págs ${leftPageNum} - ${rightPageNum > totalPages ? '-' : rightPageNum}`
-                ) : 'Cargando...'} 
+                {getPageLabel()} 
                 {totalPages > 0 && ` / ${totalPages}`}
             </span>
         </div>
@@ -282,7 +308,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
             >
                  {/* 
                     LÓGICA DE RENDERIZADO:
-                    Si useSingleView es TRUE (Portada, Móvil o PDF de 1 página):
+                    Si useSingleView es TRUE (Portada, Contraportada, Móvil o PDF de 1 página):
                       - Renderizamos UN solo contenedor centrado.
                     Si es FALSE (Libro abierto en Desktop):
                       - Renderizamos DOS contenedores (Izquierda y Derecha).
