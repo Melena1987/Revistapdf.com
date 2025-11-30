@@ -1,13 +1,35 @@
 import React, { useState, useEffect } from 'react';
-import { HashRouter as Router, Routes, Route, useParams, useNavigate } from 'react-router-dom';
+import { HashRouter as Router, Routes, Route, useParams, useNavigate, Navigate } from 'react-router-dom';
+import { Loader2 } from 'lucide-react';
 
 import { AppProvider, useAppStore } from './store/context';
+import { AuthProvider, useAuth } from './src/store/auth-context';
 import Navbar from './components/Navbar';
 import UploadModal from './components/UploadModal';
 import FlipbookViewer from './components/FlipbookViewer';
 import MagazineCard from './components/MagazineCard';
 import ShareModal from './components/ShareModal';
+import Login from './components/Login';
 import { Magazine } from './types';
+
+// Protected Route Component
+const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    const { user, loading } = useAuth();
+    
+    if (loading) {
+        return (
+            <div className="min-h-screen bg-dark-900 flex items-center justify-center">
+                <Loader2 className="w-10 h-10 text-brand-500 animate-spin"/>
+            </div>
+        );
+    }
+    
+    if (!user) {
+        return <Navigate to="/login" replace />;
+    }
+    
+    return <>{children}</>;
+};
 
 // Dashboard Component
 const Dashboard: React.FC = () => {
@@ -116,14 +138,25 @@ const MainLayout: React.FC = () => {
 
 const App: React.FC = () => {
   return (
-    <AppProvider>
-      <Router>
-        <Routes>
-            <Route path="/view/:id" element={<MainLayout />} />
-            <Route path="/" element={<MainLayout />} />
-        </Routes>
-      </Router>
-    </AppProvider>
+    <AuthProvider>
+        <AppProvider>
+        <Router>
+            <Routes>
+                <Route path="/login" element={<Login />} />
+                <Route path="/view/:id" element={
+                    <ProtectedRoute>
+                        <MainLayout />
+                    </ProtectedRoute>
+                } />
+                <Route path="/" element={
+                    <ProtectedRoute>
+                        <MainLayout />
+                    </ProtectedRoute>
+                } />
+            </Routes>
+        </Router>
+        </AppProvider>
+    </AuthProvider>
   );
 };
 
