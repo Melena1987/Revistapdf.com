@@ -20,11 +20,18 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
-  // Estado de navegación
+  // Navigation State
   const [currentPage, setCurrentPage] = useState(1);
   const [zoom, setZoom] = useState(1);
   
-  // Dimensiones calculadas para ambos layouts (Single y Double)
+  // Pan/Drag State
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef({ x: 0, y: 0 });
+  const panStartRef = useRef({ x: 0, y: 0 });
+  const hasMovedRef = useRef(false); // To distinguish click vs drag
+
+  // Dimension Calculation
   const [layoutDims, setLayoutDims] = useState({ 
       singleWidth: 0, 
       doubleWidth: 0, 
@@ -34,16 +41,12 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
   
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Determinamos si debemos usar la vista centrada (Single View)
-  // 1. Es Móvil
-  // 2. El documento solo tiene 1 página
-  // 3. Estamos en la página 1 (Portada)
-  // 4. Estamos en la última página (Contraportada)
+  // Layout Logic
   const isCover = currentPage === 1;
   const isBackCover = totalPages > 1 && currentPage === totalPages;
   const useSingleView = isMobile || (totalPages === 1) || isCover || isBackCover;
 
-  // Cargar PDF
+  // Load PDF
   useEffect(() => {
     const loadPdf = async () => {
       setLoading(true);
@@ -66,7 +69,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
     loadPdf();
   }, [magazine.pdfUrl]);
 
-  // Resize Observer: Calcula dimensiones disponibles
+  // Resize Observer
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -86,10 +89,9 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
       const safeWidth = width - paddingX;
       const safeHeight = height - paddingY;
 
-      // Guardamos dimensiones pre-calculadas para evitar saltos al cambiar de página
       setLayoutDims({
-          singleWidth: safeWidth,      // Ancho completo para portada/móvil
-          doubleWidth: safeWidth / 2,  // Mitad de ancho para vista libro
+          singleWidth: safeWidth,
+          doubleWidth: safeWidth / 2,
           height: safeHeight
       });
     };
@@ -100,28 +102,26 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
     return () => observer.disconnect();
   }, []);
 
-  // Lógica de navegación
+  // Reset Zoom/Pan on page change
+  useEffect(() => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  }, [currentPage]);
+
+  // Navigation Logic
   const goToPrev = useCallback(() => {
     setCurrentPage(p => {
         if (isMobile) return Math.max(1, p - 1);
         if (p === 1) return 1;
         
-        // Si estamos en la contraportada (vista simple), al volver queremos ver el último spread.
         if (p === totalPages && totalPages > 1) {
-            // Si Total es impar (ej: 5). Spread anterior es 4-5.
             if (p % 2 !== 0) return Math.max(1, p - 1);
-            // Si Total es par (ej: 4). Spread anterior es 2-3. 
-            // Si p=2, volvemos a 1. (Math.max(1, 0) = 1)
             return Math.max(1, p - 2);
         }
 
-        // En Desktop standard:
-        // Si estamos en página 2 o 3, volver nos lleva a la 1 (Portada centrada)
         if (p <= 3) return 1;
         
-        // Si estamos más adelante (ej: 4-5), retrocedemos 2 páginas
         const target = p - 2; 
-        // Aseguramos que caiga en el inicio del spread (par)
         return Math.max(1, target % 2 === 0 ? target : target - 1); 
     });
   }, [isMobile, totalPages]);
@@ -130,14 +130,10 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
     setCurrentPage(p => {
         if (isMobile) return Math.min(totalPages, p + 1);
         
-        // En Desktop:
-        // Si estamos en portada (1), vamos a 2 (que iniciará el spread 2-3)
         if (p === 1) return 2;
         
-        // Calculamos el siguiente salto estándar (spread)
         const target = p % 2 === 0 ? p + 2 : p + 1;
         
-        // Si el salto nos lleva a la última página o más allá, forzamos ir a la última página (Contraportada centrada)
         if (target >= totalPages) {
             return totalPages;
         }
@@ -146,7 +142,17 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
     });
   }, [isMobile, totalPages]);
 
-  // Manejo de teclado
+  // Handle Page Turn Click (Prevents turning if user was dragging)
+  const handlePageClick = useCallback((direction: 'prev' | 'next') => {
+      // If zoomed in and moved significantly, assume drag, do not turn page
+      if (zoom > 1 && hasMovedRef.current) {
+          return;
+      }
+      if (direction === 'prev') goToPrev();
+      else goToNext();
+  }, [zoom, goToPrev, goToNext]);
+
+  // Keyboard Support
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'ArrowLeft') goToPrev();
@@ -157,31 +163,59 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [goToPrev, goToNext, onClose]);
 
-  // Calcular páginas a mostrar
+  // Mouse Drag Handlers
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (zoom > 1) {
+        setIsDragging(true);
+        hasMovedRef.current = false;
+        dragStartRef.current = { x: e.clientX, y: e.clientY };
+        panStartRef.current = { ...pan };
+    }
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (isDragging && zoom > 1) {
+        e.preventDefault();
+        const dx = e.clientX - dragStartRef.current.x;
+        const dy = e.clientY - dragStartRef.current.y;
+        
+        // Threshold to distinguish click from drag
+        if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+            hasMovedRef.current = true;
+        }
+
+        setPan({
+            x: panStartRef.current.x + dx,
+            y: panStartRef.current.y + dy
+        });
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  const handleMouseLeave = () => {
+    setIsDragging(false);
+  };
+
+  // Calculate pages
   let leftPageNum = -1;
   let rightPageNum = -1;
 
   if (useSingleView) {
-    // Modo Single: Mostramos la página actual centrada
-    // (Portada P1, Contraportada P-Ultima, o cualquier página en móvil)
     leftPageNum = currentPage; 
     rightPageNum = -1;
   } else {
-    // Modo Libro (Desktop multipágina intermedio)
-    // El spread siempre empieza en par (2, 4, 6...) a la izquierda
     const startSpread = currentPage % 2 === 0 ? currentPage : currentPage - 1;
     leftPageNum = startSpread;
     rightPageNum = startSpread + 1;
   }
 
-  // Estado de botones
   const isFirst = currentPage === 1;
   const isLast = currentPage === totalPages;
-
-  // Slot actual (ancho)
   const currentSlotWidth = useSingleView ? layoutDims.singleWidth : layoutDims.doubleWidth;
 
-  // Helper para el título de la página
   const getPageLabel = () => {
     if (totalPages === 0) return 'Cargando...';
     if (useSingleView) {
@@ -191,6 +225,12 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
     }
     const endPage = rightPageNum > totalPages ? '-' : rightPageNum;
     return `Págs ${leftPageNum} - ${endPage}`;
+  };
+
+  // Zoom control helper
+  const updateZoom = (newZoom: number) => {
+      setZoom(newZoom);
+      if (newZoom <= 1) setPan({ x: 0, y: 0 }); // Reset pan if zoomed out
   };
 
   return (
@@ -218,9 +258,9 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
             )}
 
             <div className="flex items-center bg-dark-900/50 rounded-lg p-1 border border-white/5">
-                <button onClick={() => setZoom(z => Math.max(0.5, z - 0.25))} className="p-1.5 text-gray-400 hover:text-white transition-colors" aria-label="Alejar"><ZoomOut className="w-4 h-4"/></button>
+                <button onClick={() => updateZoom(Math.max(1, zoom - 0.5))} className="p-1.5 text-gray-400 hover:text-white transition-colors" aria-label="Alejar"><ZoomOut className="w-4 h-4"/></button>
                 <span className="text-xs text-gray-500 w-10 text-center hidden sm:inline-block">{Math.round(zoom * 100)}%</span>
-                <button onClick={() => setZoom(z => Math.min(3, z + 0.25))} className="p-1.5 text-gray-400 hover:text-white transition-colors" aria-label="Acercar"><ZoomIn className="w-4 h-4"/></button>
+                <button onClick={() => updateZoom(Math.min(3, zoom + 0.5))} className="p-1.5 text-gray-400 hover:text-white transition-colors" aria-label="Acercar"><ZoomIn className="w-4 h-4"/></button>
             </div>
 
             <div className="w-px h-6 bg-white/10 mx-1 hidden sm:block"></div>
@@ -231,18 +271,15 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
         </div>
       </div>
 
-      {/* CTA Mobile (Sub-header) */}
-      {!user && (
-         <div className="sm:hidden bg-brand-900/30 border-b border-brand-500/20 py-2 px-4 flex justify-between items-center">
-             <span className="text-xs text-brand-100">Crea tu propio flipbook digital</span>
-             <button onClick={() => navigate('/login')} className="text-xs font-bold text-brand-400 hover:text-brand-300">Empezar</button>
-         </div>
-      )}
-
       {/* Area Principal */}
       <div 
         ref={containerRef}
         className="flex-1 relative bg-[#1a1d21] flex items-center justify-center overflow-hidden"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseLeave}
+        style={{ cursor: zoom > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
       >
         
         {loading && (
@@ -267,7 +304,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
             </div>
         )}
 
-        {!error && totalPages > 0 && (
+        {!error && totalPages > 0 && zoom === 1 && (
             <>
                 <button 
                     onClick={goToPrev}
@@ -284,39 +321,31 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
                 >
                     <ChevronRight className="w-6 h-6 sm:w-8 sm:h-8" />
                 </button>
-
-                {!useSingleView && !loading && (
-                    <>
-                        <div onClick={goToPrev} className="absolute inset-y-0 left-0 w-[10%] z-30 cursor-pointer hover:bg-white/5 transition-colors" title="Página anterior" />
-                        <div onClick={goToNext} className="absolute inset-y-0 right-0 w-[10%] z-30 cursor-pointer hover:bg-white/5 transition-colors" title="Página siguiente" />
-                    </>
-                )}
             </>
         )}
 
         {/* Contenedor del Libro */}
         {!error && totalPages > 0 && layoutDims.height > 0 && (
             <div 
-                className="flex items-center justify-center w-full h-full transition-transform duration-300 gap-0"
+                className="flex items-center justify-center w-full h-full transition-transform duration-100 ease-out gap-0"
                 style={{ 
-                    transform: `scale(${zoom})`, 
-                    transformOrigin: 'center center' 
+                    transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, 
+                    transformOrigin: 'center center',
+                    willChange: 'transform'
                 }}
             >
-                 {/* 
-                    LÓGICA DE RENDERIZADO:
-                    Si useSingleView es TRUE (Portada, Contraportada, Móvil o PDF de 1 página):
-                      - Renderizamos UN solo contenedor centrado.
-                    Si es FALSE (Libro abierto en Desktop):
-                      - Renderizamos DOS contenedores (Izquierda y Derecha).
-                 */}
-
                  {useSingleView ? (
                     // --- VISTA SIMPLE (CENTRADA) ---
                     <div 
                         style={{ width: currentSlotWidth, height: layoutDims.height }} 
                         className="flex justify-center items-center relative flex-shrink-0 animate-in fade-in duration-300"
                     >
+                        {/* Page Overlay Click Handlers for Single View - Only trigger if not dragging */}
+                        <div className="absolute inset-0 z-20 flex">
+                            <div className="w-1/2 h-full cursor-pointer" onClick={(e) => { e.stopPropagation(); handlePageClick('prev'); }} title="Anterior"></div>
+                            <div className="w-1/2 h-full cursor-pointer" onClick={(e) => { e.stopPropagation(); handlePageClick('next'); }} title="Siguiente"></div>
+                        </div>
+
                         <PDFPage 
                             pdfDoc={pdfDoc} 
                             pageNum={leftPageNum} // En single view, leftPageNum contiene la página actual
@@ -330,7 +359,12 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
                     // --- VISTA DOBLE (LIBRO) ---
                     <>
                          {/* Página Izquierda */}
-                         <div style={{ width: currentSlotWidth, height: layoutDims.height }} className="flex justify-end items-center relative flex-shrink-0">
+                         <div 
+                            style={{ width: currentSlotWidth, height: layoutDims.height }} 
+                            className="flex justify-end items-center relative flex-shrink-0 cursor-pointer"
+                            onClick={(e) => { e.stopPropagation(); handlePageClick('prev'); }}
+                            title="Página Anterior"
+                         >
                             {leftPageNum > 0 && leftPageNum <= totalPages && (
                                 <PDFPage 
                                     pdfDoc={pdfDoc} 
@@ -349,7 +383,12 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
                          )}
 
                          {/* Página Derecha */}
-                         <div style={{ width: currentSlotWidth, height: layoutDims.height }} className="flex justify-start items-center relative flex-shrink-0">
+                         <div 
+                            style={{ width: currentSlotWidth, height: layoutDims.height }} 
+                            className="flex justify-start items-center relative flex-shrink-0 cursor-pointer"
+                            onClick={(e) => { e.stopPropagation(); handlePageClick('next'); }}
+                            title="Siguiente Página"
+                         >
                             {rightPageNum > 0 && rightPageNum <= totalPages && (
                                  <PDFPage 
                                     pdfDoc={pdfDoc} 

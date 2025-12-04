@@ -7,6 +7,7 @@ export interface Magazine {
   createdAt: number;
   category?: string;
   pageCount: number;
+  slug?: string;
 }
 
 export interface UploadState {

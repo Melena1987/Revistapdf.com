@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { FileText, MoreVertical, Eye, Share2, Edit2, Trash2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { Magazine } from '../types';
 import { useAuth } from '../store/auth-context';
 
@@ -46,12 +47,12 @@ const MagazineCard: React.FC<MagazineCardProps> = ({ magazine, onView, onEdit, o
         
         {/* Overlay Actions */}
         <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-3 backdrop-blur-[1px]">
-          <button 
-              onClick={() => onView(magazine)}
+          <Link 
+              to={`/view/${magazine.slug || magazine.id}`}
               className="px-6 py-2 bg-white text-dark-900 rounded-full font-bold text-sm hover:bg-gray-100 transform hover:scale-105 transition-all flex items-center gap-2"
           >
               <Eye className="w-4 h-4" /> Leer
-          </button>
+          </Link>
           <div className="flex gap-2">
               <button 
                   onClick={() => onShare(magazine)}

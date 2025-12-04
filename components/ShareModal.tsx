@@ -9,7 +9,10 @@ interface ShareModalProps {
 }
 
 const ShareModal: React.FC<ShareModalProps> = ({ magazine, onClose }) => {
-  const shareUrl = `${window.location.origin}${window.location.pathname.replace('index.html', '')}#/view/${magazine.id}`;
+  // Use slug for the URL if available, otherwise fallback to ID
+  const identifier = magazine.slug || magazine.id;
+  const shareUrl = `${window.location.origin}${window.location.pathname.replace('index.html', '')}#/view/${identifier}`;
+  
   const [qrCodeUrl, setQrCodeUrl] = useState('');
   const [copyButtonText, setCopyButtonText] = useState('Copiar');
 

@@ -11,6 +11,17 @@ interface UploadModalProps {
   magazineToEdit?: Magazine | null;
 }
 
+const createSlug = (text: string): string => {
+  return text
+    .toString()
+    .toLowerCase()
+    .normalize("NFD") // Split accents from letters
+    .replace(/[\u0300-\u036f]/g, "") // Remove accents
+    .replace(/[^a-z0-9]+/g, "-") // Replace non-alphanumeric with hyphens
+    .replace(/^-+|-+$/g, "") // Remove leading/trailing hyphens
+    .replace(/-+/g, "-"); // Replace multiple hyphens with single
+};
+
 const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, magazineToEdit }) => {
   const { addMagazine, updateMagazine } = useAppStore();
   const [step, setStep] = useState<'upload' | 'analyzing' | 'review'>('upload');
@@ -80,12 +91,15 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, magazineToEd
   };
 
   const handleSave = async () => {
+    const slug = createSlug(title);
+
     if (magazineToEdit) {
         // --- EDIT MODE ---
         const updates: Partial<Magazine> = {
             title,
             description,
-            category
+            category,
+            slug // Update slug if title changes
         };
 
         // If a new file was uploaded, process PDF details
@@ -113,7 +127,8 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, magazineToEd
             pdfUrl: objectUrl, // Blob URL
             coverImage: previewUrl,
             createdAt: Date.now(),
-            pageCount: pdf.numPages
+            pageCount: pdf.numPages,
+            slug
         };
         addMagazine(newMagazine);
     }

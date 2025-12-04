@@ -33,29 +33,31 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
 // Dashboard Component
 const Dashboard: React.FC = () => {
-  const { magazines, getMagazine, deleteMagazine } = useAppStore();
+  const { magazines, deleteMagazine } = useAppStore();
   const [selectedMagazine, setSelectedMagazine] = useState<Magazine | null>(null);
   const [editingMagazine, setEditingMagazine] = useState<Magazine | null>(null);
   const [isUploadModalOpen, setUploadModalOpen] = useState(false);
   const [sharingMagazine, setSharingMagazine] = useState<Magazine | null>(null);
 
-  const { id } = useParams();
+  const { slug } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  // Effect to handle direct URL access
+  // Effect to handle direct URL access via slug or ID
   useEffect(() => {
-    if (id && magazines.length > 0 && !selectedMagazine) {
-      const mag = getMagazine(id);
+    if (slug && magazines.length > 0) {
+      // Find by slug OR by ID
+      const mag = magazines.find(m => m.slug === slug || m.id === slug);
       if (mag) {
         setSelectedMagazine(mag);
       } else {
-        // If not found, stay on dashboard but maybe show error? 
-        // For now just redirect to root only if user is logged in, otherwise stay here (empty state)
+        // If not found, stay on dashboard
         if (user) navigate('/');
       }
+    } else if (!slug) {
+        setSelectedMagazine(null);
     }
-  }, [id, magazines, getMagazine, navigate, selectedMagazine, user]);
+  }, [slug, magazines, navigate, user]);
 
   // Handlers
   const handleOpenUpload = () => {
@@ -80,8 +82,13 @@ const Dashboard: React.FC = () => {
 
   const handleCloseViewer = () => {
     setSelectedMagazine(null);
-    // Remove ID from URL without refreshing
+    // Remove slug/ID from URL without refreshing
     navigate('/');
+  };
+
+  // Navigate to view view URL
+  const handleView = (mag: Magazine) => {
+      navigate(`/view/${mag.slug || mag.id}`);
   };
 
   return (
@@ -96,7 +103,7 @@ const Dashboard: React.FC = () => {
                 <MagazineCard 
                     key={mag.id} 
                     magazine={mag} 
-                    onView={setSelectedMagazine}
+                    onView={handleView}
                     onEdit={handleEdit}
                     onShare={setSharingMagazine}
                     onDelete={handleDelete}
@@ -149,8 +156,8 @@ const App: React.FC = () => {
         <Router>
             <Routes>
                 <Route path="/login" element={<Login />} />
-                {/* Public Access to View specific ID */}
-                <Route path="/view/:id" element={
+                {/* Public Access to View specific ID or Slug */}
+                <Route path="/view/:slug" element={
                     <MainLayout />
                 } />
                 {/* Protected Dashboard */}
