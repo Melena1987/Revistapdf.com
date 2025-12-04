@@ -1,0 +1,19 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /magazines/{magazineId} {
+      // Public reading allowed for Viewer (anyone with link)
+      allow get: if true;
+      
+      // Listing only allowed if filtering by own userId (enforced by query)
+      // Note: This rule requires the query to include `where("userId", "==", auth.uid)`
+      allow list: if request.auth != null && resource.data.userId == request.auth.uid;
+      
+      // Create only if setting own userId
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      
+      // Update/Delete only own documents
+      allow update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+  }
+}

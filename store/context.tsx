@@ -7,7 +7,11 @@ import {
   updateDoc, 
   deleteDoc,
   query, 
-  orderBy 
+  orderBy,
+  where,
+  getDocs,
+  limit,
+  getDoc
 } from 'firebase/firestore';
 import { 
   ref, 
@@ -17,6 +21,7 @@ import {
 } from 'firebase/storage';
 import { db, storage } from '../firebase';
 import { Magazine } from '../types';
+import { useAuth } from './auth-context';
 
 interface AppContextType {
   magazines: Magazine[];
@@ -24,28 +29,41 @@ interface AppContextType {
   updateMagazine: (id: string, updates: Partial<Magazine>) => Promise<void>;
   deleteMagazine: (id: string) => Promise<void>;
   getMagazine: (id: string) => Magazine | undefined;
+  getMagazineBySlug: (slugOrId: string) => Promise<Magazine | null>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const { user } = useAuth();
   const [magazines, setMagazines] = useState<Magazine[]>([]);
 
-  // Listen to Firestore changes in real-time
+  // Listen to Firestore changes in real-time, filtered by User
   useEffect(() => {
-    const q = query(collection(db, "magazines"), orderBy("createdAt", "desc"));
+    if (!user) {
+        setMagazines([]);
+        return;
+    }
+
+    // Only query magazines belonging to the current user
+    const q = query(
+        collection(db, "magazines"), 
+        where("userId", "==", user.uid),
+        orderBy("createdAt", "desc")
+    );
+    
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const mags = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Magazine));
       setMagazines(mags);
     }, (error: any) => {
       console.error("Error fetching magazines:", error);
       if (error.code === 'permission-denied') {
-        console.warn("Permiso denegado al leer revistas. Verifica firestore.rules.");
+        console.warn("Permiso denegado. Verifica las reglas de Firestore.");
       }
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [user]);
 
   // Helper to upload Blob URLs to Firebase Storage
   const uploadAsset = async (blobUrl: string, folder: string, id: string): Promise<string> => {
@@ -83,11 +101,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       await setDoc(doc(db, "magazines", mag.id), newMagazine);
     } catch (error: any) {
       console.error("Error adding magazine:", error);
-      if (error.code === 'permission-denied' || error.code === 'storage/unauthorized') {
-        alert("Error de permisos: No tienes autorización para guardar datos o archivos. Por favor verifica que las reglas de Firebase (Firestore y Storage) permitan escritura a usuarios autenticados.");
-      } else {
-        alert("Error al subir la revista. Por favor intenta de nuevo.");
-      }
+      alert("Error al subir la revista. Verifica permisos o conexión.");
     }
   };
 
@@ -109,9 +123,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       await updateDoc(magRef, finalUpdates);
     } catch (error: any) {
       console.error("Error updating magazine:", error);
-      if (error.code === 'permission-denied' || error.code === 'storage/unauthorized') {
-        alert("Error de permisos al actualizar. Verifica las reglas de Firebase.");
-      }
+      alert("Error al actualizar.");
     }
   };
 
@@ -120,8 +132,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const mag = magazines.find(m => m.id === id);
       
       if (mag) {
-        // Attempt to delete associated files from storage
-        // Note: This relies on the URL being a standard Firebase Storage URL
         if (mag.pdfUrl && mag.pdfUrl.includes('firebasestorage')) {
           try {
             const pdfRef = ref(storage, mag.pdfUrl);
@@ -141,7 +151,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         }
       }
 
-      // Delete document
       await deleteDoc(doc(db, "magazines", id));
     } catch (error) {
        console.error("Error deleting magazine:", error);
@@ -151,8 +160,35 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const getMagazine = (id: string) => magazines.find(m => m.id === id);
 
+  // New method to fetch ANY magazine by slug or ID (Public Access)
+  const getMagazineBySlug = async (slugOrId: string): Promise<Magazine | null> => {
+      try {
+        // 1. Try to find by Slug
+        const q = query(collection(db, "magazines"), where("slug", "==", slugOrId), limit(1));
+        const snapshot = await getDocs(q);
+        
+        if (!snapshot.empty) {
+            const d = snapshot.docs[0];
+            return { id: d.id, ...d.data() } as Magazine;
+        }
+
+        // 2. Fallback: Try to find by ID (Direct Fetch)
+        const docRef = doc(db, "magazines", slugOrId);
+        const docSnap = await getDoc(docRef);
+        
+        if (docSnap.exists()) {
+            return { id: docSnap.id, ...docSnap.data() } as Magazine;
+        }
+
+        return null;
+      } catch (e) {
+          console.error("Error fetching public magazine", e);
+          return null;
+      }
+  };
+
   return (
-    <AppContext.Provider value={{ magazines, addMagazine, updateMagazine, deleteMagazine, getMagazine }}>
+    <AppContext.Provider value={{ magazines, addMagazine, updateMagazine, deleteMagazine, getMagazine, getMagazineBySlug }}>
       {children}
     </AppContext.Provider>
   );

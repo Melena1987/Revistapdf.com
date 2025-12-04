@@ -1,5 +1,6 @@
 export interface Magazine {
   id: string;
+  userId: string;
   title: string;
   description: string;
   pdfUrl: string; // In a real app this is a remote URL, here likely a blob URL

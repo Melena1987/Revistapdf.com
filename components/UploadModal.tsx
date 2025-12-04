@@ -3,6 +3,7 @@ import { X, Upload, Loader2, Check, RefreshCw } from 'lucide-react';
 import { analyzePdf } from '../services/gemini';
 import { generateCoverThumbnail, getPdfDocument } from '../services/pdf';
 import { useAppStore } from '../store/context';
+import { useAuth } from '../store/auth-context';
 import { Magazine } from '../types';
 
 interface UploadModalProps {
@@ -24,6 +25,7 @@ const createSlug = (text: string): string => {
 
 const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, magazineToEdit }) => {
   const { addMagazine, updateMagazine } = useAppStore();
+  const { user } = useAuth();
   const [step, setStep] = useState<'upload' | 'analyzing' | 'review'>('upload');
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string>('');
@@ -91,6 +93,11 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, magazineToEd
   };
 
   const handleSave = async () => {
+    if (!user) {
+        alert("Debes iniciar sesión para guardar.");
+        return;
+    }
+
     const slug = createSlug(title);
 
     if (magazineToEdit) {
@@ -121,6 +128,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, magazineToEd
         
         const newMagazine: Magazine = {
             id: crypto.randomUUID(),
+            userId: user.uid, // OWNER ID
             title,
             description,
             category,

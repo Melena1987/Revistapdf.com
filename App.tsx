@@ -31,7 +31,49 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
     return <>{children}</>;
 };
 
-// Dashboard Component
+// Public Viewer (Standalone)
+const PublicViewer: React.FC = () => {
+    const { slug } = useParams();
+    const navigate = useNavigate();
+    const { getMagazineBySlug } = useAppStore();
+    const [magazine, setMagazine] = useState<Magazine | null>(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchMag = async () => {
+            if (!slug) return;
+            const mag = await getMagazineBySlug(slug);
+            setMagazine(mag);
+            setLoading(false);
+        };
+        fetchMag();
+    }, [slug, getMagazineBySlug]);
+
+    if (loading) {
+        return (
+            <div className="min-h-screen bg-dark-900 flex items-center justify-center">
+                <Loader2 className="w-10 h-10 text-brand-500 animate-spin"/>
+                <span className="ml-3 text-white">Cargando revista...</span>
+            </div>
+        );
+    }
+
+    if (!magazine) {
+        return (
+            <div className="min-h-screen bg-dark-900 flex flex-col items-center justify-center text-white">
+                <h1 className="text-2xl font-bold mb-2">Revista no encontrada</h1>
+                <p className="text-gray-400 mb-6">El enlace puede estar roto o la revista fue eliminada.</p>
+                <button onClick={() => navigate('/')} className="px-6 py-2 bg-brand-600 rounded-full">
+                    Ir al Inicio
+                </button>
+            </div>
+        );
+    }
+
+    return <FlipbookViewer magazine={magazine} onClose={() => navigate('/')} />;
+};
+
+// Dashboard Component (Private User Library)
 const Dashboard: React.FC = () => {
   const { magazines, deleteMagazine } = useAppStore();
   const [selectedMagazine, setSelectedMagazine] = useState<Magazine | null>(null);
@@ -39,32 +81,11 @@ const Dashboard: React.FC = () => {
   const [isUploadModalOpen, setUploadModalOpen] = useState(false);
   const [sharingMagazine, setSharingMagazine] = useState<Magazine | null>(null);
 
-  const { slug } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  // Effect to handle direct URL access via slug or ID
-  useEffect(() => {
-    if (slug && magazines.length > 0) {
-      // Find by slug OR by ID
-      const mag = magazines.find(m => m.slug === slug || m.id === slug);
-      if (mag) {
-        setSelectedMagazine(mag);
-      } else {
-        // If not found, stay on dashboard
-        if (user) navigate('/');
-      }
-    } else if (!slug) {
-        setSelectedMagazine(null);
-    }
-  }, [slug, magazines, navigate, user]);
-
   // Handlers
   const handleOpenUpload = () => {
-    if (!user) {
-        navigate('/login');
-        return;
-    }
     setEditingMagazine(null);
     setUploadModalOpen(true);
   };
@@ -80,15 +101,12 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const handleCloseViewer = () => {
-    setSelectedMagazine(null);
-    // Remove slug/ID from URL without refreshing
-    navigate('/');
-  };
-
-  // Navigate to view view URL
+  // Preview local (in dashboard modal) or navigate to public link
   const handleView = (mag: Magazine) => {
-      navigate(`/view/${mag.slug || mag.id}`);
+      // Option A: Open in Dashboard Modal (Quick Preview)
+      setSelectedMagazine(mag);
+      // Option B: Navigate to public link (Uncomment if preferred)
+      // navigate(`/view/${mag.slug || mag.id}`);
   };
 
   return (
@@ -96,55 +114,61 @@ const Dashboard: React.FC = () => {
         <Navbar onUploadClick={handleOpenUpload} />
         
         <div className="container mx-auto px-4 py-8">
+            <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold text-white">Mis Revistas</h2>
+            </div>
         
-        {/* Grid: Columns adjusted for larger cards (roughly double size) */}
-        <div className="grid grid-cols-1 min-[450px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
-            {magazines.map((mag) => (
-                <MagazineCard 
-                    key={mag.id} 
-                    magazine={mag} 
-                    onView={handleView}
-                    onEdit={handleEdit}
-                    onShare={setSharingMagazine}
-                    onDelete={handleDelete}
-                />
-            ))}
-            
-            {magazines.length === 0 && (
-                <div className="col-span-full py-20 text-center text-gray-500">
-                    <p className="text-lg">No hay revistas disponibles.</p>
-                </div>
+            {/* Grid */}
+            <div className="grid grid-cols-1 min-[450px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
+                {magazines.map((mag) => (
+                    <MagazineCard 
+                        key={mag.id} 
+                        magazine={mag} 
+                        onView={handleView}
+                        onEdit={handleEdit}
+                        onShare={setSharingMagazine}
+                        onDelete={handleDelete}
+                    />
+                ))}
+                
+                {magazines.length === 0 && (
+                    <div className="col-span-full py-20 text-center text-gray-500 border-2 border-dashed border-white/5 rounded-xl">
+                        <p className="text-lg mb-2">No tienes revistas publicadas.</p>
+                        <button onClick={handleOpenUpload} className="text-brand-400 hover:text-brand-300 font-medium">
+                            Sube tu primera revista PDF
+                        </button>
+                    </div>
+                )}
+            </div>
+
+            {/* Viewer Modal Overlay (For quick preview in Dashboard) */}
+            {selectedMagazine && (
+                <FlipbookViewer magazine={selectedMagazine} onClose={() => setSelectedMagazine(null)} />
             )}
-        </div>
 
-        {/* Viewer Modal Overlay */}
-        {selectedMagazine && (
-            <FlipbookViewer magazine={selectedMagazine} onClose={handleCloseViewer} />
-        )}
-
-        {/* Upload/Edit Modal */}
-        <UploadModal 
-            isOpen={isUploadModalOpen} 
-            onClose={() => setUploadModalOpen(false)} 
-            magazineToEdit={editingMagazine}
-        />
-
-        {/* Share Modal */}
-        {sharingMagazine && (
-            <ShareModal
-                magazine={sharingMagazine}
-                onClose={() => setSharingMagazine(null)}
+            {/* Upload/Edit Modal */}
+            <UploadModal 
+                isOpen={isUploadModalOpen} 
+                onClose={() => setUploadModalOpen(false)} 
+                magazineToEdit={editingMagazine}
             />
-        )}
+
+            {/* Share Modal */}
+            {sharingMagazine && (
+                <ShareModal
+                    magazine={sharingMagazine}
+                    onClose={() => setSharingMagazine(null)}
+                />
+            )}
         </div>
     </>
   );
 };
 
-const MainLayout: React.FC = () => {
+const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     return (
         <div className="min-h-screen bg-dark-900 text-white font-sans selection:bg-brand-500/30">
-            <Dashboard />
+            {children}
         </div>
     );
 };
@@ -156,14 +180,20 @@ const App: React.FC = () => {
         <Router>
             <Routes>
                 <Route path="/login" element={<Login />} />
+                
                 {/* Public Access to View specific ID or Slug */}
                 <Route path="/view/:slug" element={
-                    <MainLayout />
+                    <MainLayout>
+                        <PublicViewer />
+                    </MainLayout>
                 } />
+                
                 {/* Protected Dashboard */}
                 <Route path="/" element={
                     <ProtectedRoute>
-                        <MainLayout />
+                        <MainLayout>
+                            <Dashboard />
+                        </MainLayout>
                     </ProtectedRoute>
                 } />
             </Routes>
