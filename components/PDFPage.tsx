@@ -40,9 +40,10 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
         
         if (!mounted) return;
 
+        // 1. Calculate Scaling
         const baseViewport = page.getViewport({ scale: 1 });
         
-        // Calculate scale to fit width
+        // Calculate scale to fit container width/height
         const widthScale = containerWidth / baseViewport.width;
         const heightScale = containerHeight / baseViewport.height;
         const fitScale = Math.min(widthScale, heightScale);
@@ -50,14 +51,15 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
         const dpr = window.devicePixelRatio || 1;
         const totalScale = fitScale * scale; 
         
-        // This viewport is for the canvas (high res based on DPR)
+        // Viewport for Canvas (High Res based on DPR)
         const scaledViewport = page.getViewport({ scale: totalScale * dpr });
-        // This viewport is for CSS/Annotations (standard CSS pixels)
+        // Viewport for CSS/Annotations (Standard logical pixels)
         const cssViewport = page.getViewport({ scale: totalScale });
 
         const canvas = canvasRef.current;
         if (!canvas) return;
 
+        // 2. Set Dimensions immediately to reserve space
         canvas.width = scaledViewport.width;
         canvas.height = scaledViewport.height;
 
@@ -65,7 +67,9 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
         const cssHeight = scaledViewport.height / dpr;
         setPageDims({ width: cssWidth, height: cssHeight });
 
-        const context = canvas.getContext('2d');
+        // 3. Render Canvas (Visuals)
+        // Optimization: alpha: false assumes opaque background (faster)
+        const context = canvas.getContext('2d', { alpha: false });
         if (!context) return;
 
         const renderContext = {
@@ -73,66 +77,65 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
           viewport: scaledViewport,
         };
 
-        // Render Canvas (Visuals)
         const task = page.render(renderContext);
         renderTaskRef.current = task;
+        
+        // Wait for render to finish
         await task.promise;
         
         if (!mounted) return;
         setIsRendering(false);
 
-        // --- Render Annotation Layer (Links) ---
-        // We do this AFTER canvas render so visual load feels faster
+        // 4. Render Annotation Layer (Links)
+        // We do this after canvas started, but we don't block the UI
         const annotationDiv = annotationLayerRef.current;
         if (annotationDiv) {
             annotationDiv.innerHTML = ''; // Clear previous annotations
             
+            // Dimensions must match the CSS size of the canvas
+            annotationDiv.style.width = `${cssWidth}px`;
+            annotationDiv.style.height = `${cssHeight}px`;
+
             // Get annotations from PDF
             const annotations = await page.getAnnotations();
             
             if (!mounted) return;
 
-            // Render using PDF.js AnnotationLayer
-            // Note: We use window.pdfjsLib because it's loaded via CDN in index.html
             const pdfjs = (window as any).pdfjsLib;
             
             if (pdfjs && annotations.length > 0) {
-                 // Create the AnnotationLayer instance
-                 // In PDF.js v3+, we usually instantiate AnnotationLayer or use render parameters
-                 // The parameters must match the `pdf_viewer.css` expectations
-                 
-                 // We manually set dimensions to match the canvas container exactly
+                 // Define CSS variables required by pdf_viewer.css for correct positioning
                  annotationDiv.style.setProperty('--scale-factor', `${totalScale}`);
                  
                  try {
-                     // Using the API structure common in the CDN build
                      await pdfjs.AnnotationLayer.render({
                         viewport: cssViewport.clone({ dontFlip: true }),
                         div: annotationDiv,
                         annotations: annotations,
                         page: page,
                         linkService: {
-                            // Simple mock link service to handle external links
-                            externalLinkTarget: 2, // 2 = _blank
+                            externalLinkTarget: 2, // _blank
                             externalLinkRel: 'noopener noreferrer',
                             getDestinationHash: () => null,
-                            goToDestination: () => {}, // We could implement internal page jumps here later
+                            goToDestination: () => {}, 
                         },
                         renderInteractiveForms: false,
                     });
                     
-                    // IMPORTANT: Prevent page turning when clicking a link
-                    // We attach a capturing listener to all 'a' tags created
+                    // Stop propagation on links so clicking them doesn't flip the page
                     const links = annotationDiv.querySelectorAll('a');
                     links.forEach((link: HTMLAnchorElement) => {
+                        // Prevent dragging start on links
+                        link.setAttribute('draggable', 'false');
+                        
                         link.addEventListener('click', (e) => {
-                            e.stopPropagation(); // Stop bubbling to Flipbook viewer
+                            e.stopPropagation(); 
                         });
                         link.addEventListener('mousedown', (e) => {
                              e.stopPropagation();
                         });
-                        link.addEventListener('mouseup', (e) => {
-                             e.stopPropagation(); // Prevent drag end triggering page turn
+                        link.addEventListener('touchstart', (e) => {
+                             e.stopPropagation();
                         });
                     });
 
@@ -213,12 +216,14 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
          {/* ANNOTATION LAYER (Links) */}
          <div 
             ref={annotationLayerRef}
-            className="annotationLayer absolute inset-0"
+            className="annotationLayer"
             style={{
                 width: pageDims ? `${pageDims.width}px` : '100%',
                 height: pageDims ? `${pageDims.height}px` : '100%',
                 left: 0,
                 top: 0,
+                // Ensure it sits exactly on top of canvas
+                position: 'absolute'
             }}
          />
 
