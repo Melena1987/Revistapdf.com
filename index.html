@@ -33,6 +33,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     <!-- PDF.js CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <!-- PDF.js Viewer CSS (Required for Annotation Layer positioning) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf_viewer.min.css">
+    
     <script>
       // Configure PDF.js worker
       pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -110,6 +113,22 @@
         width: 60px;
         height: 60px;
         background-color: rgba(0, 160, 255, 0.2);
+      }
+
+      /* Annotation Layer Overrides for Flipbook */
+      .annotationLayer {
+        /* Ensure the container doesn't block page drags/clicks unless hitting a link */
+        pointer-events: none; 
+      }
+      .annotationLayer section {
+        /* Allow clicking on the actual link elements */
+        pointer-events: auto;
+        cursor: pointer;
+      }
+      /* Optional: Make links subtly visible on hover */
+      .annotationLayer .linkAnnotation > a:hover {
+        background-color: rgba(255, 255, 0, 0.2);
+        box-shadow: 0px 2px 10px rgba(255, 255, 0, 0.2);
       }
     </style>
   <script type="importmap">
