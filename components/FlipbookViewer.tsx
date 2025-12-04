@@ -121,6 +121,14 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
       setCurrentPageIndex(e.data);
   }, []);
 
+  // Handle internal link jumps
+  const handlePageJump = useCallback((pageIndex: number) => {
+    if (bookRef.current) {
+        // react-pageflip uses 0-based indexing, same as pdf.js pageIndex
+        bookRef.current.pageFlip().flip(pageIndex);
+    }
+  }, []);
+
   // Zoom Helpers
   const updateZoom = (val: number) => {
       const newZoom = Math.min(Math.max(1, val), 3);
@@ -270,6 +278,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
                                 height={bookDimensions.height}
                                 // Prioritize rendering current spread +/- 1
                                 priority={Math.abs(currentPageIndex - index) <= 2}
+                                onPageJump={handlePageJump}
                             />
                         </Page>
                     ))}

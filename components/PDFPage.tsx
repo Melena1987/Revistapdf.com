@@ -7,6 +7,7 @@ interface PDFPageProps {
   width: number; 
   height: number;
   priority?: boolean; // If true, render immediately. If false, lazy load.
+  onPageJump?: (pageIndex: number) => void;
 }
 
 export const PDFPage: React.FC<PDFPageProps> = React.memo(({ 
@@ -14,7 +15,8 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
   pageNum, 
   width, 
   height,
-  priority = false
+  priority = false,
+  onPageJump
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const annotationLayerRef = useRef<HTMLDivElement>(null);
@@ -117,7 +119,35 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
                         externalLinkTarget: 2, // _blank
                         externalLinkRel: 'noopener noreferrer',
                         getDestinationHash: () => null,
-                        goToDestination: () => {}, 
+                        goToDestination: async (dest: any) => {
+                            if (!onPageJump) return;
+                            
+                            try {
+                                let explicitDest = dest;
+                                // 1. If destination is a string name, resolve it to an explicit destination array
+                                if (typeof dest === 'string') {
+                                    explicitDest = await pdfDoc.getDestination(dest);
+                                }
+
+                                if (!explicitDest) {
+                                    console.warn('Destination not found:', dest);
+                                    return;
+                                }
+
+                                // 2. Explicit destination array: [Ref, Name, ...args]
+                                // The first element is the Ref object of the page
+                                const destRef = Array.isArray(explicitDest) ? explicitDest[0] : null;
+
+                                if (destRef) {
+                                    // 3. Get page index (0-based) from Ref
+                                    const pageIndex = await pdfDoc.getPageIndex(destRef);
+                                    // 4. Flip the book
+                                    onPageJump(pageIndex);
+                                }
+                            } catch (error) {
+                                console.error('Error navigating to link:', error);
+                            }
+                        }, 
                     },
                     renderInteractiveForms: false,
                 });
@@ -149,7 +179,7 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
             renderTaskRef.current.cancel();
         }
     };
-  }, [pdfDoc, pageNum, width, height, rendered]);
+  }, [pdfDoc, pageNum, width, height, rendered, onPageJump]);
 
   // If priority is false, and we haven't rendered, we could show a placeholder
   // But standard behavior is to render anyway.
