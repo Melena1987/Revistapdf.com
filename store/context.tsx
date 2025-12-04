@@ -45,15 +45,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         return;
     }
 
-    // Only query magazines belonging to the current user
+    // QUERY FIX: Removed orderBy("createdAt", "desc") to avoid "Index Required" error.
+    // We filter by userId and sort in memory.
     const q = query(
         collection(db, "magazines"), 
-        where("userId", "==", user.uid),
-        orderBy("createdAt", "desc")
+        where("userId", "==", user.uid)
     );
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const mags = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Magazine));
+      // Client-side sort: Newest first
+      mags.sort((a, b) => b.createdAt - a.createdAt);
       setMagazines(mags);
     }, (error: any) => {
       console.error("Error fetching magazines:", error);
@@ -69,11 +71,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const uploadAsset = async (blobUrl: string, folder: string, id: string): Promise<string> => {
     // If it's already a remote URL or empty, return as is
     if (!blobUrl || !blobUrl.startsWith('blob:')) return blobUrl;
+    
+    // Security: Ensure user is logged in
+    if (!user) throw new Error("Debes iniciar sesión para subir archivos.");
 
     try {
       const response = await fetch(blobUrl);
       const blob = await response.blob();
-      const fileRef = ref(storage, `${folder}/${id}/${Date.now()}`);
+      
+      // STORAGE PATH FIX: Store files in users/{uid}/{folder}/{id}
+      // This matches the new storage.rules structure for security.
+      const path = `users/${user.uid}/${folder}/${id}/${Date.now()}`;
+      const fileRef = ref(storage, path);
+      
       await uploadBytes(fileRef, blob);
       return await getDownloadURL(fileRef);
     } catch (error) {
