@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut, Loader2, AlertCircle, ExternalLink, Sparkles } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut, Loader2, AlertCircle, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import HTMLFlipBook from 'react-pageflip';
 import { getPdfDocument } from '../services/pdf';
 import { Magazine } from '../types';
 import { PDFPage } from './PDFPage';
@@ -11,6 +12,21 @@ interface FlipbookViewerProps {
   onClose: () => void;
 }
 
+// Wrapper component required by react-pageflip (Must use forwardRef)
+const Page = React.forwardRef<HTMLDivElement, any>((props, ref) => {
+    return (
+        <div ref={ref} className="bg-white shadow-sm overflow-hidden" style={{ padding: 0 }}>
+            <div className="w-full h-full relative">
+                 {props.children}
+                 {/* Page Number Footer */}
+                 <div className="absolute bottom-2 right-4 text-[10px] text-gray-400 z-30 font-sans">
+                    {props.number}
+                 </div>
+            </div>
+        </div>
+    );
+});
+
 const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) => {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -20,33 +36,20 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
-  // Navigation State
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPageIndex, setCurrentPageIndex] = useState(0); // 0-based index
   const [zoom, setZoom] = useState(1);
-  
-  // Pan/Drag State
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  
+  // Dimensions for the flipbook
+  const [bookDimensions, setBookDimensions] = useState({ width: 0, height: 0 });
+  const containerRef = useRef<HTMLDivElement>(null);
+  const bookRef = useRef<any>(null); // React-pageflip ref
+
+  // Dragging logic for Pan (when zoomed)
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
   const panStartRef = useRef({ x: 0, y: 0 });
-  const hasMovedRef = useRef(false); // To distinguish click vs drag
 
-  // Dimension Calculation
-  const [layoutDims, setLayoutDims] = useState({ 
-      singleWidth: 0, 
-      doubleWidth: 0, 
-      height: 0 
-  });
-  const [isMobile, setIsMobile] = useState(false);
-  
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  // Layout Logic
-  const isCover = currentPage === 1;
-  const isBackCover = totalPages > 1 && currentPage === totalPages;
-  const useSingleView = isMobile || (totalPages === 1) || isCover || isBackCover;
-
-  // Load PDF
   useEffect(() => {
     const loadPdf = async () => {
       setLoading(true);
@@ -57,11 +60,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
         setTotalPages(doc.numPages);
       } catch (err: any) {
         console.error("Error loading PDF", err);
-        let msg = "No se pudo cargar el documento.";
-        if (err.name === 'UnknownErrorException' || err.message?.includes('Network') || err.name === 'MissingPDFException') {
-            msg = "Error de acceso al archivo (Posible bloqueo CORS). Verifica la configuración de tu almacenamiento.";
-        }
-        setError(msg);
+        setError("No se pudo cargar el documento.");
       } finally {
         setLoading(false);
       }
@@ -69,105 +68,93 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
     loadPdf();
   }, [magazine.pdfUrl]);
 
-  // Resize Observer
+  // Responsive Resizing
   useEffect(() => {
-    if (!containerRef.current) return;
+    const handleResize = () => {
+        if (!containerRef.current) return;
+        const { clientWidth, clientHeight } = containerRef.current;
+        
+        // Safety margin
+        const w = clientWidth;
+        const h = clientHeight;
 
-    const measure = (entries: ResizeObserverEntry[]) => {
-      const entry = entries[0];
-      if (!entry) return;
+        // Determine if mobile (portrait) or desktop (landscape)
+        // Note: react-pageflip uses 'width' as the width of a SINGLE page.
+        // So in landscape, total width is 2 * width.
+        const isMobile = window.innerWidth < 768;
+        
+        let pageW, pageH;
 
-      const { width, height } = entry.contentRect;
-      if (width === 0 || height === 0) return;
+        if (isMobile) {
+            // Mobile: Single page fits width
+            pageH = h - 20;
+            pageW = Math.floor(pageH / 1.414); // A4 Ratio
+            if (pageW > w - 20) {
+                pageW = w - 20;
+                pageH = Math.floor(pageW * 1.414);
+            }
+        } else {
+            // Desktop: Two pages side by side
+            // Available width for ONE page is half screen
+            const availableW = (w - 60) / 2; 
+            const availableH = h - 40;
 
-      const mobile = width < 768;
-      setIsMobile(mobile);
+            pageH = availableH;
+            pageW = Math.floor(pageH / 1.414);
 
-      const paddingX = mobile ? 20 : 40; 
-      const paddingY = 40;
-      
-      const safeWidth = width - paddingX;
-      const safeHeight = height - paddingY;
+            if (pageW > availableW) {
+                pageW = availableW;
+                pageH = Math.floor(pageW * 1.414);
+            }
+        }
 
-      setLayoutDims({
-          singleWidth: safeWidth,
-          doubleWidth: safeWidth / 2,
-          height: safeHeight
-      });
+        setBookDimensions({ width: pageW, height: pageH });
     };
 
-    const observer = new ResizeObserver(measure);
-    observer.observe(containerRef.current);
-
-    return () => observer.disconnect();
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Reset Zoom/Pan on page change
-  useEffect(() => {
-    setZoom(1);
-    setPan({ x: 0, y: 0 });
-  }, [currentPage]);
+  const handleFlip = useCallback((e: any) => {
+      // e.data is the index of the new top page
+      setCurrentPageIndex(e.data);
+  }, []);
 
-  // Navigation Logic
-  const goToPrev = useCallback(() => {
-    setCurrentPage(p => {
-        if (isMobile) return Math.max(1, p - 1);
-        if (p === 1) return 1;
-        
-        if (p === totalPages && totalPages > 1) {
-            if (p % 2 !== 0) return Math.max(1, p - 1);
-            return Math.max(1, p - 2);
-        }
+  // Zoom Helpers
+  const updateZoom = (val: number) => {
+      const newZoom = Math.min(Math.max(1, val), 3);
+      setZoom(newZoom);
+      if (newZoom === 1) setPan({ x: 0, y: 0 });
+  };
 
-        if (p <= 3) return 1;
-        
-        const target = p - 2; 
-        return Math.max(1, target % 2 === 0 ? target : target - 1); 
-    });
-  }, [isMobile, totalPages]);
-
-  const goToNext = useCallback(() => {
-    setCurrentPage(p => {
-        if (isMobile) return Math.min(totalPages, p + 1);
-        
-        if (p === 1) return 2;
-        
-        const target = p % 2 === 0 ? p + 2 : p + 1;
-        
-        if (target >= totalPages) {
-            return totalPages;
-        }
-
-        return target;
-    });
-  }, [isMobile, totalPages]);
-
-  // Handle Page Turn Click (Prevents turning if user was dragging)
-  const handlePageClick = useCallback((direction: 'prev' | 'next') => {
-      // If zoomed in and moved significantly, assume drag, do not turn page
-      if (zoom > 1 && hasMovedRef.current) {
-          return;
+  const onNext = () => {
+      if (bookRef.current) {
+          bookRef.current.pageFlip().flipNext();
       }
-      if (direction === 'prev') goToPrev();
-      else goToNext();
-  }, [zoom, goToPrev, goToNext]);
+  };
 
-  // Keyboard Support
+  const onPrev = () => {
+      if (bookRef.current) {
+          bookRef.current.pageFlip().flipPrev();
+      }
+  };
+
+  // Keyboard navigation
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowLeft') goToPrev();
-      if (e.key === 'ArrowRight') goToNext();
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [goToPrev, goToNext, onClose]);
+      const handleKey = (e: KeyboardEvent) => {
+          if (e.key === 'ArrowRight') onNext();
+          if (e.key === 'ArrowLeft') onPrev();
+          if (e.key === 'Escape') onClose();
+      };
+      window.addEventListener('keydown', handleKey);
+      return () => window.removeEventListener('keydown', handleKey);
+  }, []);
 
-  // Mouse Drag Handlers
+  // Pan Logic
   const handleMouseDown = (e: React.MouseEvent) => {
     if (zoom > 1) {
         setIsDragging(true);
-        hasMovedRef.current = false;
         dragStartRef.current = { x: e.clientX, y: e.clientY };
         panStartRef.current = { ...pan };
     }
@@ -178,233 +165,135 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
         e.preventDefault();
         const dx = e.clientX - dragStartRef.current.x;
         const dy = e.clientY - dragStartRef.current.y;
-        
-        // Threshold to distinguish click from drag
-        if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
-            hasMovedRef.current = true;
-        }
-
-        setPan({
-            x: panStartRef.current.x + dx,
-            y: panStartRef.current.y + dy
-        });
+        setPan({ x: panStartRef.current.x + dx, y: panStartRef.current.y + dy });
     }
   };
 
-  const handleMouseUp = () => {
-    setIsDragging(false);
-  };
-
-  const handleMouseLeave = () => {
-    setIsDragging(false);
-  };
-
-  // Calculate pages
-  let leftPageNum = -1;
-  let rightPageNum = -1;
-
-  if (useSingleView) {
-    leftPageNum = currentPage; 
-    rightPageNum = -1;
-  } else {
-    const startSpread = currentPage % 2 === 0 ? currentPage : currentPage - 1;
-    leftPageNum = startSpread;
-    rightPageNum = startSpread + 1;
-  }
-
-  const isFirst = currentPage === 1;
-  const isLast = currentPage === totalPages;
-  const currentSlotWidth = useSingleView ? layoutDims.singleWidth : layoutDims.doubleWidth;
-
-  const getPageLabel = () => {
-    if (totalPages === 0) return 'Cargando...';
-    if (useSingleView) {
-        if (currentPage === 1) return 'Portada';
-        if (currentPage === totalPages && totalPages > 1) return 'Contraportada';
-        return `Pág ${currentPage}`;
-    }
-    const endPage = rightPageNum > totalPages ? '-' : rightPageNum;
-    return `Págs ${leftPageNum} - ${endPage}`;
-  };
-
-  // Zoom control helper
-  const updateZoom = (newZoom: number) => {
-      setZoom(newZoom);
-      if (newZoom <= 1) setPan({ x: 0, y: 0 }); // Reset pan if zoomed out
-  };
+  const handleMouseUp = () => setIsDragging(false);
 
   return (
-    <div className="fixed inset-0 z-50 bg-dark-900 flex flex-col h-screen overflow-hidden animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 bg-dark-900 flex flex-col h-screen overflow-hidden animate-in fade-in duration-300">
       
       {/* Header */}
       <div className="h-16 border-b border-white/10 flex items-center justify-between px-4 bg-dark-800 shrink-0 shadow-md z-50">
         <div className="flex items-center gap-4">
-            <h1 className="text-white font-medium truncate max-w-[100px] sm:max-w-md text-sm sm:text-base">{magazine.title}</h1>
-            <span className="text-xs text-gray-400 bg-white/5 px-2 py-1 rounded border border-white/5 whitespace-nowrap hidden md:inline-block">
-                {getPageLabel()} 
-                {totalPages > 0 && ` / ${totalPages}`}
-            </span>
+            <h1 className="text-white font-medium truncate max-w-[150px] sm:max-w-md text-sm sm:text-base">{magazine.title}</h1>
         </div>
         
         <div className="flex items-center gap-2 sm:gap-4">
-            {!user && (
+             {!user && (
                 <button 
                     onClick={() => navigate('/login')}
-                    className="hidden sm:flex items-center gap-2 px-4 py-1.5 bg-gradient-to-r from-brand-600 to-blue-600 hover:from-brand-500 hover:to-blue-500 text-white text-xs sm:text-sm font-medium rounded-full shadow-lg shadow-brand-500/20 transition-all transform hover:scale-105 mr-2"
+                    className="hidden sm:flex items-center gap-2 px-4 py-1.5 bg-gradient-to-r from-brand-600 to-blue-600 hover:from-brand-500 hover:to-blue-500 text-white text-xs sm:text-sm font-medium rounded-full shadow-lg transition-transform hover:scale-105 mr-2"
                 >
                     <Sparkles className="w-3 h-3 sm:w-4 sm:h-4 text-yellow-300" />
-                    <span>¿Quieres crear tu revista PDF?</span>
+                    <span>Crea tu revista</span>
                 </button>
             )}
 
             <div className="flex items-center bg-dark-900/50 rounded-lg p-1 border border-white/5">
-                <button onClick={() => updateZoom(Math.max(1, zoom - 0.5))} className="p-1.5 text-gray-400 hover:text-white transition-colors" aria-label="Alejar"><ZoomOut className="w-4 h-4"/></button>
-                <span className="text-xs text-gray-500 w-10 text-center hidden sm:inline-block">{Math.round(zoom * 100)}%</span>
-                <button onClick={() => updateZoom(Math.min(3, zoom + 0.5))} className="p-1.5 text-gray-400 hover:text-white transition-colors" aria-label="Acercar"><ZoomIn className="w-4 h-4"/></button>
+                <button onClick={() => updateZoom(zoom - 0.5)} className="p-1.5 text-gray-400 hover:text-white"><ZoomOut className="w-4 h-4"/></button>
+                <span className="text-xs text-gray-500 w-10 text-center">{Math.round(zoom * 100)}%</span>
+                <button onClick={() => updateZoom(zoom + 0.5)} className="p-1.5 text-gray-400 hover:text-white"><ZoomIn className="w-4 h-4"/></button>
             </div>
 
             <div className="w-px h-6 bg-white/10 mx-1 hidden sm:block"></div>
-            
-            <button onClick={onClose} className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-colors" aria-label="Cerrar">
+            <button onClick={onClose} className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full">
                 <X className="w-5 h-5" />
             </button>
         </div>
       </div>
 
-      {/* Area Principal */}
+      {/* Viewer Area */}
       <div 
         ref={containerRef}
-        className="flex-1 relative bg-[#1a1d21] flex items-center justify-center overflow-hidden"
+        className="flex-1 relative bg-[#2b2e33] flex items-center justify-center overflow-hidden"
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseLeave}
+        onMouseLeave={handleMouseUp}
         style={{ cursor: zoom > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
       >
+        {loading && <div className="flex flex-col items-center"><Loader2 className="w-10 h-10 text-brand-500 animate-spin mb-4" /><span className="text-white">Cargando Libro...</span></div>}
         
-        {loading && (
-             <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-dark-900/50 backdrop-blur-sm">
-                <Loader2 className="w-10 h-10 text-brand-500 animate-spin mb-4" />
-                <span className="text-white font-medium">Cargando documento...</span>
+        {error && (
+             <div className="text-center p-8 bg-dark-800 rounded-xl border border-white/10 max-w-md mx-4">
+                <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+                <h3 className="text-xl text-white font-bold mb-2">Error</h3>
+                <p className="text-gray-400">{error}</p>
              </div>
         )}
 
-        {error && (
-            <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center bg-dark-900 p-4 text-center animate-in fade-in zoom-in-95 duration-200">
-                <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-4">
-                    <AlertCircle className="w-8 h-8 text-red-500" />
-                </div>
-                <h3 className="text-xl font-bold text-white mb-2">Error de lectura</h3>
-                <p className="text-gray-400 max-w-md mb-6">{error}</p>
-                <div className="flex gap-4 flex-wrap justify-center">
-                     <button onClick={() => window.location.reload()} className="px-6 py-2 bg-dark-800 border border-white/10 text-white rounded-full font-medium hover:bg-dark-700 transition-colors">Recargar</button>
-                     <a href={magazine.pdfUrl} target="_blank" rel="noopener noreferrer" className="px-6 py-2 bg-brand-600 text-white rounded-full font-medium hover:bg-brand-500 transition-colors flex items-center gap-2"><ExternalLink className="w-4 h-4" /> Abrir Original</a>
-                    <button onClick={onClose} className="px-6 py-2 bg-white text-dark-900 rounded-full font-medium hover:bg-gray-200 transition-colors">Cerrar</button>
-                </div>
+        {/* Flipbook Container */}
+        {!loading && !error && totalPages > 0 && bookDimensions.width > 0 && (
+            <div 
+                className="transition-transform duration-100 ease-out"
+                style={{
+                    transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                    transformOrigin: 'center center'
+                }}
+            >
+                {/* 
+                  Note on Zoom: react-pageflip logic gets messed up if we scale the parent div heavily 
+                  while trying to flip interactively. Ideally, users should flip at 100% and zoom only to read static.
+                */}
+                <HTMLFlipBook
+                    width={bookDimensions.width}
+                    height={bookDimensions.height}
+                    size="fixed"
+                    minWidth={300}
+                    maxWidth={1000}
+                    minHeight={400}
+                    maxHeight={1414}
+                    showCover={true}
+                    maxShadowOpacity={0.5}
+                    mobileScrollSupport={true}
+                    onFlip={handleFlip}
+                    ref={bookRef}
+                    className="shadow-2xl"
+                    style={{ margin: '0 auto' }}
+                    usePortrait={window.innerWidth < 768}
+                    startPage={0}
+                    drawShadow={true}
+                    flippingTime={1000}
+                    swipeDistance={30}
+                    clickEventForward={true} // Important for links
+                    useMouseEvents={zoom === 1} // Disable flip dragging when zoomed
+                >
+                    {/* Render Pages */}
+                    {Array.from({ length: totalPages }).map((_, index) => (
+                        <Page key={index} number={index + 1}>
+                            <PDFPage 
+                                pdfDoc={pdfDoc}
+                                pageNum={index + 1}
+                                width={bookDimensions.width}
+                                height={bookDimensions.height}
+                                // Prioritize rendering current spread +/- 1
+                                priority={Math.abs(currentPageIndex - index) <= 2}
+                            />
+                        </Page>
+                    ))}
+                </HTMLFlipBook>
             </div>
         )}
 
-        {!error && totalPages > 0 && zoom === 1 && (
+        {/* Navigation Arrows (Outside Book) */}
+        {!loading && !error && zoom === 1 && (
             <>
                 <button 
-                    onClick={goToPrev}
-                    disabled={isFirst}
-                    className="absolute left-2 sm:left-6 z-40 p-2 sm:p-3 rounded-full bg-dark-900/90 text-white hover:bg-brand-600 disabled:opacity-0 disabled:pointer-events-none transition-all shadow-xl border border-white/10"
+                    onClick={onPrev}
+                    className="absolute left-2 sm:left-8 top-1/2 -translate-y-1/2 z-40 p-3 rounded-full bg-dark-900/80 text-white hover:bg-brand-600 transition-all shadow-xl backdrop-blur-sm border border-white/10"
                 >
-                    <ChevronLeft className="w-6 h-6 sm:w-8 sm:h-8" />
+                    <ChevronLeft className="w-6 h-6" />
                 </button>
-
                 <button 
-                    onClick={goToNext}
-                    disabled={isLast}
-                    className="absolute right-2 sm:right-6 z-40 p-2 sm:p-3 rounded-full bg-dark-900/90 text-white hover:bg-brand-600 disabled:opacity-0 disabled:pointer-events-none transition-all shadow-xl border border-white/10"
+                    onClick={onNext}
+                    className="absolute right-2 sm:right-8 top-1/2 -translate-y-1/2 z-40 p-3 rounded-full bg-dark-900/80 text-white hover:bg-brand-600 transition-all shadow-xl backdrop-blur-sm border border-white/10"
                 >
-                    <ChevronRight className="w-6 h-6 sm:w-8 sm:h-8" />
+                    <ChevronRight className="w-6 h-6" />
                 </button>
             </>
         )}
-
-        {/* Contenedor del Libro */}
-        {!error && totalPages > 0 && layoutDims.height > 0 && (
-            <div 
-                className="flex items-center justify-center w-full h-full transition-transform duration-100 ease-out gap-0"
-                style={{ 
-                    transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, 
-                    transformOrigin: 'center center',
-                    willChange: 'transform'
-                }}
-            >
-                 {useSingleView ? (
-                    // --- VISTA SIMPLE (CENTRADA) ---
-                    <div 
-                        style={{ width: currentSlotWidth, height: layoutDims.height }} 
-                        className="flex justify-center items-center relative flex-shrink-0 animate-in fade-in duration-300"
-                    >
-                        {/* Page Overlay Click Handlers for Single View - Only trigger if not dragging */}
-                        <div className="absolute inset-0 z-20 flex">
-                            <div className="w-1/2 h-full cursor-pointer" onClick={(e) => { e.stopPropagation(); handlePageClick('prev'); }} title="Anterior"></div>
-                            <div className="w-1/2 h-full cursor-pointer" onClick={(e) => { e.stopPropagation(); handlePageClick('next'); }} title="Siguiente"></div>
-                        </div>
-
-                        <PDFPage 
-                            pdfDoc={pdfDoc} 
-                            pageNum={leftPageNum} // En single view, leftPageNum contiene la página actual
-                            containerWidth={currentSlotWidth} 
-                            containerHeight={layoutDims.height}
-                            scale={1}
-                            variant="single"
-                        />
-                    </div>
-                 ) : (
-                    // --- VISTA DOBLE (LIBRO) ---
-                    <>
-                         {/* Página Izquierda */}
-                         <div 
-                            style={{ width: currentSlotWidth, height: layoutDims.height }} 
-                            className="flex justify-end items-center relative flex-shrink-0 cursor-pointer"
-                            onClick={(e) => { e.stopPropagation(); handlePageClick('prev'); }}
-                            title="Página Anterior"
-                         >
-                            {leftPageNum > 0 && leftPageNum <= totalPages && (
-                                <PDFPage 
-                                    pdfDoc={pdfDoc} 
-                                    pageNum={leftPageNum} 
-                                    containerWidth={currentSlotWidth} 
-                                    containerHeight={layoutDims.height} 
-                                    scale={1} 
-                                    variant="left"
-                                />
-                            )}
-                         </div>
-
-                         {/* Lomo / Sombra central */}
-                         {leftPageNum > 0 && rightPageNum > 0 && rightPageNum <= totalPages && (
-                             <div className="absolute h-[95%] w-px bg-gradient-to-b from-transparent via-black/40 to-transparent z-10 left-1/2 -ml-px" />
-                         )}
-
-                         {/* Página Derecha */}
-                         <div 
-                            style={{ width: currentSlotWidth, height: layoutDims.height }} 
-                            className="flex justify-start items-center relative flex-shrink-0 cursor-pointer"
-                            onClick={(e) => { e.stopPropagation(); handlePageClick('next'); }}
-                            title="Siguiente Página"
-                         >
-                            {rightPageNum > 0 && rightPageNum <= totalPages && (
-                                 <PDFPage 
-                                    pdfDoc={pdfDoc} 
-                                    pageNum={rightPageNum} 
-                                    containerWidth={currentSlotWidth} 
-                                    containerHeight={layoutDims.height}
-                                    scale={1}
-                                    variant="right"
-                                 />
-                            )}
-                         </div>
-                    </>
-                 )}
-            </div>
-        )}
-
       </div>
     </div>
   );

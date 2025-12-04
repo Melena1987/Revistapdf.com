@@ -50,8 +50,13 @@
         left: 0;
         right: 0;
         bottom: 0;
-        pointer-events: none; /* Let clicks pass through empty areas to allow page dragging */
-        z-index: 10;
+        transform-origin: 0 0;
+        z-index: 50; /* Ensure it is above the canvas */
+      }
+      
+      /* Let clicks pass through empty areas */
+      .annotationLayer {
+        pointer-events: none; 
       }
 
       /* Re-enable pointer events ONLY on the actual links/inputs */
@@ -76,14 +81,10 @@
         box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.4);
         border-radius: 2px;
       }
-
-      /* Hide PDF.js input fields if they exist (form filling not supported yet) */
-      .annotationLayer .textWidgetAnnotation input,
-      .annotationLayer .textWidgetAnnotation textarea,
-      .annotationLayer .choiceWidgetAnnotation select,
-      .annotationLayer .buttonWidgetAnnotation.checkBox input,
-      .annotationLayer .buttonWidgetAnnotation.radioButton input {
-        cursor: pointer;
+      
+      /* Flipbook container shadow */
+      .stf__wrapper {
+        box-shadow: 0 20px 50px rgba(0,0,0,0.5);
       }
     </style>
   <script type="importmap">
@@ -96,7 +97,8 @@
     "react": "https://aistudiocdn.com/react@^19.2.0",
     "lucide-react": "https://aistudiocdn.com/lucide-react@^0.555.0",
     "firebase/": "https://aistudiocdn.com/firebase@^12.6.0/",
-    "qrcode": "https://esm.sh/qrcode@1.5.4"
+    "qrcode": "https://esm.sh/qrcode@1.5.4",
+    "react-pageflip": "https://esm.sh/react-pageflip@2.0.3?external=react,react-dom"
   }
 }
 </script>

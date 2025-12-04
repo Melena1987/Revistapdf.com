@@ -4,144 +4,132 @@ import { Loader2 } from 'lucide-react';
 interface PDFPageProps {
   pdfDoc: any;
   pageNum: number;
-  containerWidth: number;
-  containerHeight: number;
-  scale: number;
-  variant?: 'left' | 'right' | 'single';
+  width: number; 
+  height: number;
+  priority?: boolean; // If true, render immediately. If false, lazy load.
 }
 
 export const PDFPage: React.FC<PDFPageProps> = React.memo(({ 
   pdfDoc, 
   pageNum, 
-  containerWidth, 
-  containerHeight, 
-  scale, 
-  variant = 'single' 
+  width, 
+  height,
+  priority = false
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const annotationLayerRef = useRef<HTMLDivElement>(null);
   const renderTaskRef = useRef<any>(null);
   const [isRendering, setIsRendering] = useState(false);
-  const [pageDims, setPageDims] = useState<{ width: number; height: number } | null>(null);
+  const [rendered, setRendered] = useState(false);
 
   useEffect(() => {
-    if (!pdfDoc || !canvasRef.current || pageNum <= 0 || pageNum > pdfDoc.numPages || containerWidth <= 0 || containerHeight <= 0) return;
+    if (!pdfDoc || !canvasRef.current || pageNum <= 0) return;
 
+    // Simple lazy loading: If not priority, we could delay, 
+    // but for smooth flipping, we'll render but maybe prioritize context.
+    // For now, render all to ensure they are ready when flipped.
+    
     let mounted = true;
 
     const render = async () => {
       try {
+        if (rendered) return; // Don't re-render if done
         setIsRendering(true);
-        if (renderTaskRef.current) {
-            renderTaskRef.current.cancel();
-        }
 
         const page = await pdfDoc.getPage(pageNum);
-        
         if (!mounted) return;
 
-        // 1. Calculate Scaling
-        const baseViewport = page.getViewport({ scale: 1 });
-        
-        // Calculate scale to fit container width/height
-        const widthScale = containerWidth / baseViewport.width;
-        const heightScale = containerHeight / baseViewport.height;
-        const fitScale = Math.min(widthScale, heightScale);
-        
+        // Calculate Scale to Fit container
+        const unscaledViewport = page.getViewport({ scale: 1 });
+        const scaleX = width / unscaledViewport.width;
+        const scaleY = height / unscaledViewport.height;
+        // Use the smaller scale to fit entirely within the page bounds
+        const scale = Math.min(scaleX, scaleY);
+
         const dpr = window.devicePixelRatio || 1;
-        const totalScale = fitScale * scale; 
         
-        // Viewport for Canvas (High Res based on DPR)
-        const scaledViewport = page.getViewport({ scale: totalScale * dpr });
-        // Viewport for CSS/Annotations (Standard logical pixels)
-        const cssViewport = page.getViewport({ scale: totalScale });
+        // Visual Viewport (High Quality)
+        const viewport = page.getViewport({ scale: scale * dpr });
+        // CSS/Annotation Viewport (Logical pixels)
+        const cssViewport = page.getViewport({ scale: scale });
 
         const canvas = canvasRef.current;
         if (!canvas) return;
 
-        // 2. Set Dimensions immediately to reserve space
-        canvas.width = scaledViewport.width;
-        canvas.height = scaledViewport.height;
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        
+        // Force style width/height to match container exactly
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
+        canvas.style.objectFit = 'contain';
 
-        const cssWidth = scaledViewport.width / dpr;
-        const cssHeight = scaledViewport.height / dpr;
-        setPageDims({ width: cssWidth, height: cssHeight });
-
-        // 3. Render Canvas (Visuals)
-        // Optimization: alpha: false assumes opaque background (faster)
         const context = canvas.getContext('2d', { alpha: false });
         if (!context) return;
 
         const renderContext = {
           canvasContext: context,
-          viewport: scaledViewport,
+          viewport: viewport,
         };
+
+        if (renderTaskRef.current) {
+            renderTaskRef.current.cancel();
+        }
 
         const task = page.render(renderContext);
         renderTaskRef.current = task;
-        
-        // Wait for render to finish
         await task.promise;
         
         if (!mounted) return;
+        setRendered(true);
         setIsRendering(false);
 
-        // 4. Render Annotation Layer (Links)
-        // We do this after canvas started, but we don't block the UI
+        // --- Render Annotations (Links) ---
         const annotationDiv = annotationLayerRef.current;
         if (annotationDiv) {
-            annotationDiv.innerHTML = ''; // Clear previous annotations
+            annotationDiv.innerHTML = ''; // Clear
             
-            // Dimensions must match the CSS size of the canvas
-            annotationDiv.style.width = `${cssWidth}px`;
-            annotationDiv.style.height = `${cssHeight}px`;
+            // Critical: The annotation layer must match the canvas logical size
+            // But we center it if the aspect ratio differs
+            annotationDiv.style.width = `${cssViewport.width}px`;
+            annotationDiv.style.height = `${cssViewport.height}px`;
+            
+            // Center the annotation layer if the page has whitespace
+            const offsetX = (width - cssViewport.width) / 2;
+            const offsetY = (height - cssViewport.height) / 2;
+            annotationDiv.style.left = `${offsetX}px`;
+            annotationDiv.style.top = `${offsetY}px`;
 
-            // Get annotations from PDF
             const annotations = await page.getAnnotations();
-            
             if (!mounted) return;
 
-            const pdfjs = (window as any).pdfjsLib;
-            
-            if (pdfjs && annotations.length > 0) {
-                 // Define CSS variables required by pdf_viewer.css for correct positioning
-                 annotationDiv.style.setProperty('--scale-factor', `${totalScale}`);
-                 
-                 try {
-                     await pdfjs.AnnotationLayer.render({
-                        viewport: cssViewport.clone({ dontFlip: true }),
-                        div: annotationDiv,
-                        annotations: annotations,
-                        page: page,
-                        linkService: {
-                            externalLinkTarget: 2, // _blank
-                            externalLinkRel: 'noopener noreferrer',
-                            getDestinationHash: () => null,
-                            goToDestination: () => {}, 
-                        },
-                        renderInteractiveForms: false,
-                    });
-                    
-                    // Stop propagation on links so clicking them doesn't flip the page
-                    const links = annotationDiv.querySelectorAll('a');
-                    links.forEach((link: HTMLAnchorElement) => {
-                        // Prevent dragging start on links
-                        link.setAttribute('draggable', 'false');
-                        
-                        link.addEventListener('click', (e) => {
-                            e.stopPropagation(); 
-                        });
-                        link.addEventListener('mousedown', (e) => {
-                             e.stopPropagation();
-                        });
-                        link.addEventListener('touchstart', (e) => {
-                             e.stopPropagation();
-                        });
-                    });
+            if (annotations.length > 0) {
+                 const pdfjs = (window as any).pdfjsLib;
+                 // CSS variable for correct scaling of input elements
+                 annotationDiv.style.setProperty('--scale-factor', `${scale}`);
 
-                 } catch (e) {
-                     console.warn("Annotation render warning:", e);
-                 }
+                 await pdfjs.AnnotationLayer.render({
+                    viewport: cssViewport.clone({ dontFlip: true }),
+                    div: annotationDiv,
+                    annotations: annotations,
+                    page: page,
+                    linkService: {
+                        externalLinkTarget: 2, // _blank
+                        externalLinkRel: 'noopener noreferrer',
+                        getDestinationHash: () => null,
+                        goToDestination: () => {}, 
+                    },
+                    renderInteractiveForms: false,
+                });
+
+                // Fix link events
+                const links = annotationDiv.querySelectorAll('a');
+                links.forEach((link: HTMLAnchorElement) => {
+                    link.setAttribute('draggable', 'false');
+                    link.addEventListener('click', (e) => e.stopPropagation());
+                    link.addEventListener('mousedown', (e) => e.stopPropagation());
+                    link.addEventListener('touchstart', (e) => e.stopPropagation());
+                });
             }
         }
 
@@ -161,74 +149,25 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
             renderTaskRef.current.cancel();
         }
     };
-  }, [pdfDoc, pageNum, containerWidth, containerHeight, scale]);
+  }, [pdfDoc, pageNum, width, height, rendered]);
 
-  if (pageNum <= 0 || (pdfDoc && pageNum > pdfDoc.numPages)) {
-    return <div className="w-full h-full" />;
-  }
-
-  // Determine layout and styling based on variant
-  let wrapperClass = "justify-center origin-center";
-  let gradientOverlay = null;
-  
-  let shadowStyle: React.CSSProperties = { 
-      boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)' 
-  };
-
-  if (variant === 'left') {
-     wrapperClass = "justify-end origin-right";
-     shadowStyle = { boxShadow: '-5px 0 15px -3px rgba(0, 0, 0, 0.15)' }; 
-     gradientOverlay = (
-         <div className="absolute top-0 right-0 w-12 h-full bg-gradient-to-l from-black/10 to-transparent pointer-events-none z-10 mix-blend-multiply" />
-     );
-  } else if (variant === 'right') {
-     wrapperClass = "justify-start origin-left";
-     shadowStyle = { boxShadow: '5px 0 15px -3px rgba(0, 0, 0, 0.15)' };
-     gradientOverlay = (
-         <div className="absolute top-0 left-0 w-12 h-full bg-gradient-to-r from-black/10 to-transparent pointer-events-none z-10 mix-blend-multiply" />
-     );
-  }
+  // If priority is false, and we haven't rendered, we could show a placeholder
+  // But standard behavior is to render anyway.
 
   return (
-    <div className={`relative flex items-center ${wrapperClass}`} style={{ width: '100%', height: '100%' }}>
-      {isRendering && (
-          <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
+    <div className="relative w-full h-full flex items-center justify-center overflow-hidden bg-white">
+      {isRendering && !rendered && (
+          <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none bg-white">
               <Loader2 className="w-8 h-8 text-brand-500 animate-spin" />
           </div>
       )}
       
-      {/* Page Content Wrapper */}
-      <div className="relative">
-         {/* CANVAS LAYER (Visuals) */}
-         <canvas 
-            ref={canvasRef} 
-            className="bg-white block select-none transition-transform duration-200"
-            style={{
-                width: pageDims ? `${pageDims.width}px` : 'auto',
-                height: pageDims ? `${pageDims.height}px` : 'auto',
-                maxWidth: '100%',
-                maxHeight: '100%',
-                objectFit: 'contain',
-                ...shadowStyle
-            }}
-         />
-         
-         {/* ANNOTATION LAYER (Links) */}
-         <div 
-            ref={annotationLayerRef}
-            className="annotationLayer"
-            style={{
-                width: pageDims ? `${pageDims.width}px` : '100%',
-                height: pageDims ? `${pageDims.height}px` : '100%',
-                left: 0,
-                top: 0,
-                // Ensure it sits exactly on top of canvas
-                position: 'absolute'
-            }}
-         />
-
-         {gradientOverlay}
-      </div>
+      <canvas ref={canvasRef} className="block select-none" />
+      <div ref={annotationLayerRef} className="annotationLayer" />
+      
+      {/* Page shadow gradient (Inner fold simulation) */}
+      <div className="absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-black/5 to-transparent pointer-events-none z-20" />
+      <div className="absolute inset-y-0 left-0 w-2 bg-gradient-to-r from-black/5 to-transparent pointer-events-none z-20" />
     </div>
   );
 });
