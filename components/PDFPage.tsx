@@ -27,10 +27,6 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
   useEffect(() => {
     if (!pdfDoc || !canvasRef.current || pageNum <= 0) return;
 
-    // Simple lazy loading: If not priority, we could delay, 
-    // but for smooth flipping, we'll render but maybe prioritize context.
-    // For now, render all to ensure they are ready when flipped.
-    
     let mounted = true;
 
     const render = async () => {
@@ -116,7 +112,7 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
                     annotations: annotations,
                     page: page,
                     linkService: {
-                        externalLinkTarget: 2, // _blank
+                        externalLinkTarget: 2, // 2 = Opens in new window/tab (_blank)
                         externalLinkRel: 'noopener noreferrer',
                         getDestinationHash: () => null,
                         goToDestination: async (dest: any) => {
@@ -152,13 +148,32 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
                     renderInteractiveForms: false,
                 });
 
-                // Fix link events
+                // --- Post-Processing for Robust Link Handling ---
+                // We iterate over generated anchors to ensure correct behavior in Flipbook context
                 const links = annotationDiv.querySelectorAll('a');
+                
                 links.forEach((link: HTMLAnchorElement) => {
                     link.setAttribute('draggable', 'false');
-                    link.addEventListener('click', (e) => e.stopPropagation());
-                    link.addEventListener('mousedown', (e) => e.stopPropagation());
-                    link.addEventListener('touchstart', (e) => e.stopPropagation());
+
+                    // If it's an external link (has href attribute), ensure target _blank
+                    // PDF.js sets this via externalLinkTarget, but we double-check for safety
+                    if (link.href && !link.href.includes('#')) {
+                        link.target = '_blank';
+                        link.rel = 'noopener noreferrer';
+                    }
+
+                    // CRITICAL: Stop propagation of events.
+                    // This prevents the Flipbook library from interpreting the click/touch 
+                    // on the link as a page drag/swipe command.
+                    const stopPropagation = (e: Event) => {
+                        e.stopPropagation();
+                    };
+
+                    // Listen to all interaction events
+                    link.addEventListener('click', stopPropagation);
+                    link.addEventListener('mousedown', stopPropagation);
+                    link.addEventListener('touchstart', stopPropagation, { passive: false });
+                    link.addEventListener('pointerdown', stopPropagation);
                 });
             }
         }
@@ -180,9 +195,6 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
         }
     };
   }, [pdfDoc, pageNum, width, height, rendered, onPageJump]);
-
-  // If priority is false, and we haven't rendered, we could show a placeholder
-  // But standard behavior is to render anyway.
 
   return (
     <div className="relative w-full h-full flex items-center justify-center overflow-hidden bg-white">
