@@ -68,7 +68,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [user]);
 
   // Helper to upload Blob URLs to Firebase Storage
-  const uploadAsset = async (blobUrl: string, folder: string, id: string): Promise<string> => {
+  const uploadAsset = async (blobUrl: string, folder: string, id: string, fileName?: string): Promise<string> => {
     // If it's already a remote URL or empty, return as is
     if (!blobUrl || !blobUrl.startsWith('blob:')) return blobUrl;
     
@@ -84,7 +84,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const path = `users/${user.uid}/${folder}/${id}/${Date.now()}`;
       const fileRef = ref(storage, path);
       
-      await uploadBytes(fileRef, blob);
+      const metadata: any = {
+        contentType: blob.type
+      };
+
+      if (fileName) {
+          // Store original name in contentDisposition so download works nicely
+          // and in custom metadata for reference
+          const safeName = fileName.replace(/[^\w.-]/g, '_');
+          metadata.contentDisposition = `inline; filename="${safeName}"`;
+          metadata.customMetadata = { originalName: fileName };
+      }
+
+      await uploadBytes(fileRef, blob, metadata);
       return await getDownloadURL(fileRef);
     } catch (error) {
       console.error(`Error uploading asset for ${id}:`, error);
@@ -95,7 +107,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const addMagazine = async (mag: Magazine) => {
     try {
       // 1. Upload PDF and Cover Image if they are local blob URLs
-      const remotePdfUrl = await uploadAsset(mag.pdfUrl, 'pdfs', mag.id);
+      const remotePdfUrl = await uploadAsset(mag.pdfUrl, 'pdfs', mag.id, mag.originalFilename);
       const remoteCoverUrl = mag.coverImage 
         ? await uploadAsset(mag.coverImage, 'covers', mag.id) 
         : undefined;
@@ -121,7 +133,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       // Handle PDF update if changed
       if (updates.pdfUrl && updates.pdfUrl.startsWith('blob:')) {
-        finalUpdates.pdfUrl = await uploadAsset(updates.pdfUrl, 'pdfs', id);
+        finalUpdates.pdfUrl = await uploadAsset(updates.pdfUrl, 'pdfs', id, updates.originalFilename);
       }
 
       // Handle Cover update if changed

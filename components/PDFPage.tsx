@@ -145,26 +145,29 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
                             }
                         }, 
                     },
-                    renderInteractiveForms: false,
+                    renderInteractiveForms: true, // Enable forms/checkboxes
                 });
 
                 // --- Post-Processing for Robust Link Handling ---
                 // We iterate over generated anchors to ensure correct behavior in Flipbook context
-                const links = annotationDiv.querySelectorAll('a');
+                const links = annotationDiv.querySelectorAll('a, input, textarea, select');
                 
-                links.forEach((link: HTMLAnchorElement) => {
+                links.forEach((link: HTMLElement) => {
                     link.setAttribute('draggable', 'false');
 
                     // If it's an external link (has href attribute), ensure target _blank
                     // PDF.js sets this via externalLinkTarget, but we double-check for safety
-                    if (link.href && !link.href.includes('#')) {
-                        link.target = '_blank';
-                        link.rel = 'noopener noreferrer';
+                    if (link.tagName === 'A') {
+                        const anchor = link as HTMLAnchorElement;
+                        if (anchor.href && !anchor.href.includes('#')) {
+                            anchor.target = '_blank';
+                            anchor.rel = 'noopener noreferrer';
+                        }
                     }
 
                     // CRITICAL: Stop propagation of events.
                     // This prevents the Flipbook library from interpreting the click/touch 
-                    // on the link as a page drag/swipe command.
+                    // on the link/input as a page drag/swipe command.
                     const stopPropagation = (e: Event) => {
                         e.stopPropagation();
                     };
@@ -174,6 +177,11 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
                     link.addEventListener('mousedown', stopPropagation);
                     link.addEventListener('touchstart', stopPropagation, { passive: false });
                     link.addEventListener('pointerdown', stopPropagation);
+                    
+                    // Allow input focus
+                    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(link.tagName)) {
+                        link.addEventListener('focus', stopPropagation);
+                    }
                 });
             }
         }

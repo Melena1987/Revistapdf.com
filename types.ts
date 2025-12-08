@@ -9,6 +9,7 @@ export interface Magazine {
   category?: string;
   pageCount: number;
   slug?: string;
+  originalFilename?: string;
 }
 
 export interface UploadState {

@@ -116,6 +116,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, magazineToEd
             updates.pdfUrl = objectUrl;
             updates.coverImage = previewUrl;
             updates.pageCount = pdf.numPages;
+            updates.originalFilename = file.name;
         }
 
         updateMagazine(magazineToEdit.id, updates);
@@ -136,7 +137,8 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, magazineToEd
             coverImage: previewUrl,
             createdAt: Date.now(),
             pageCount: pdf.numPages,
-            slug
+            slug,
+            originalFilename: file.name
         };
         addMagazine(newMagazine);
     }
