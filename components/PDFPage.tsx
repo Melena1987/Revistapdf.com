@@ -20,6 +20,7 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const annotationLayerRef = useRef<HTMLDivElement>(null);
+  const textLayerRef = useRef<HTMLDivElement>(null);
   const renderTaskRef = useRef<any>(null);
   const [isRendering, setIsRendering] = useState(false);
   const [rendered, setRendered] = useState(false);
@@ -46,11 +47,12 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
 
         const dpr = window.devicePixelRatio || 1;
         
-        // Visual Viewport (High Quality)
+        // Visual Viewport (High Quality for Canvas)
         const viewport = page.getViewport({ scale: scale * dpr });
         // CSS/Annotation Viewport (Logical pixels)
         const cssViewport = page.getViewport({ scale: scale });
 
+        // --- Render Canvas ---
         const canvas = canvasRef.current;
         if (!canvas) return;
 
@@ -82,30 +84,62 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
         setRendered(true);
         setIsRendering(false);
 
-        // --- Render Annotations (Links) ---
+        // Calculate offsets to center the layers (Annotation & Text) 
+        // if the aspect ratio differs from the container
+        const offsetX = (width - cssViewport.width) / 2;
+        const offsetY = (height - cssViewport.height) / 2;
+        const pdfjs = (window as any).pdfjsLib;
+
+        // --- Render Text Layer (Selectable Text) ---
+        const textLayerDiv = textLayerRef.current;
+        if (textLayerDiv) {
+            textLayerDiv.innerHTML = '';
+            
+            // Critical Alignment
+            textLayerDiv.style.width = `${cssViewport.width}px`;
+            textLayerDiv.style.height = `${cssViewport.height}px`;
+            textLayerDiv.style.left = `${offsetX}px`;
+            textLayerDiv.style.top = `${offsetY}px`;
+            // CSS var required by PDF.js text layer styles
+            textLayerDiv.style.setProperty('--scale-factor', `${scale}`);
+
+            try {
+              const textContent = await page.getTextContent();
+              if (mounted) {
+                // Render text layer
+                await pdfjs.renderTextLayer({
+                    textContentSource: textContent,
+                    container: textLayerDiv,
+                    viewport: cssViewport,
+                    textDivs: []
+                }).promise;
+
+                // Stop propagation on text layer interactions to prevent Flipbook drag
+                // while allowing text selection
+                textLayerDiv.addEventListener('mousedown', (e) => e.stopPropagation());
+                textLayerDiv.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
+                textLayerDiv.addEventListener('pointerdown', (e) => e.stopPropagation());
+              }
+            } catch (textError) {
+              console.error("Error rendering text layer:", textError);
+            }
+        }
+
+        // --- Render Annotations (Links & Forms) ---
         const annotationDiv = annotationLayerRef.current;
         if (annotationDiv) {
             annotationDiv.innerHTML = ''; // Clear
             
-            // Critical: The annotation layer must match the canvas logical size
-            // But we center it if the aspect ratio differs
             annotationDiv.style.width = `${cssViewport.width}px`;
             annotationDiv.style.height = `${cssViewport.height}px`;
-            
-            // Center the annotation layer if the page has whitespace
-            const offsetX = (width - cssViewport.width) / 2;
-            const offsetY = (height - cssViewport.height) / 2;
             annotationDiv.style.left = `${offsetX}px`;
             annotationDiv.style.top = `${offsetY}px`;
+            annotationDiv.style.setProperty('--scale-factor', `${scale}`);
 
             const annotations = await page.getAnnotations();
             if (!mounted) return;
 
             if (annotations.length > 0) {
-                 const pdfjs = (window as any).pdfjsLib;
-                 // CSS variable for correct scaling of input elements
-                 annotationDiv.style.setProperty('--scale-factor', `${scale}`);
-
                  await pdfjs.AnnotationLayer.render({
                     viewport: cssViewport.clone({ dontFlip: true }),
                     div: annotationDiv,
@@ -117,27 +151,15 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
                         getDestinationHash: () => null,
                         goToDestination: async (dest: any) => {
                             if (!onPageJump) return;
-                            
                             try {
                                 let explicitDest = dest;
-                                // 1. If destination is a string name, resolve it to an explicit destination array
                                 if (typeof dest === 'string') {
                                     explicitDest = await pdfDoc.getDestination(dest);
                                 }
-
-                                if (!explicitDest) {
-                                    console.warn('Destination not found:', dest);
-                                    return;
-                                }
-
-                                // 2. Explicit destination array: [Ref, Name, ...args]
-                                // The first element is the Ref object of the page
+                                if (!explicitDest) return;
                                 const destRef = Array.isArray(explicitDest) ? explicitDest[0] : null;
-
                                 if (destRef) {
-                                    // 3. Get page index (0-based) from Ref
                                     const pageIndex = await pdfDoc.getPageIndex(destRef);
-                                    // 4. Flip the book
                                     onPageJump(pageIndex);
                                 }
                             } catch (error) {
@@ -148,15 +170,12 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
                     renderInteractiveForms: true, // Enable forms/checkboxes
                 });
 
-                // --- Post-Processing for Robust Link Handling ---
-                // We iterate over generated anchors to ensure correct behavior in Flipbook context
-                const links = annotationDiv.querySelectorAll('a, input, textarea, select');
+                // Post-Processing for Links to stop Flipbook drag
+                const links = annotationDiv.querySelectorAll('a, input, textarea, select, section');
                 
                 links.forEach((link: HTMLElement) => {
                     link.setAttribute('draggable', 'false');
 
-                    // If it's an external link (has href attribute), ensure target _blank
-                    // PDF.js sets this via externalLinkTarget, but we double-check for safety
                     if (link.tagName === 'A') {
                         const anchor = link as HTMLAnchorElement;
                         if (anchor.href && !anchor.href.includes('#')) {
@@ -165,20 +184,16 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
                         }
                     }
 
-                    // CRITICAL: Stop propagation of events.
-                    // This prevents the Flipbook library from interpreting the click/touch 
-                    // on the link/input as a page drag/swipe command.
+                    // CRITICAL: Stop propagation so clicks don't flip the page
                     const stopPropagation = (e: Event) => {
                         e.stopPropagation();
                     };
 
-                    // Listen to all interaction events
                     link.addEventListener('click', stopPropagation);
                     link.addEventListener('mousedown', stopPropagation);
                     link.addEventListener('touchstart', stopPropagation, { passive: false });
                     link.addEventListener('pointerdown', stopPropagation);
                     
-                    // Allow input focus
                     if (['INPUT', 'TEXTAREA', 'SELECT'].includes(link.tagName)) {
                         link.addEventListener('focus', stopPropagation);
                     }
@@ -212,12 +227,18 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
           </div>
       )}
       
-      <canvas ref={canvasRef} className="block select-none" />
+      {/* 1. Canvas (Background Image) */}
+      <canvas ref={canvasRef} className="block select-none relative z-10" />
+      
+      {/* 2. Text Layer (Selectable Text) - z-index 20 via CSS */}
+      <div ref={textLayerRef} className="textLayer" />
+
+      {/* 3. Annotation Layer (Links/Forms) - z-index 30 via CSS */}
       <div ref={annotationLayerRef} className="annotationLayer" />
       
       {/* Page shadow gradient (Inner fold simulation) */}
-      <div className="absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-black/5 to-transparent pointer-events-none z-20" />
-      <div className="absolute inset-y-0 left-0 w-2 bg-gradient-to-r from-black/5 to-transparent pointer-events-none z-20" />
+      <div className="absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-black/5 to-transparent pointer-events-none z-40" />
+      <div className="absolute inset-y-0 left-0 w-2 bg-gradient-to-r from-black/5 to-transparent pointer-events-none z-40" />
     </div>
   );
 });

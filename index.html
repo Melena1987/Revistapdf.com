@@ -33,7 +33,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     <!-- PDF.js CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-    <!-- PDF.js Viewer CSS (Required for Annotation Layer positioning) -->
+    <!-- PDF.js Viewer CSS (Required for Annotation Layer & Text Layer) -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf_viewer.min.css">
     
     <script>
@@ -43,19 +43,52 @@
     <style>
       body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: white; }
       
-      /* PDF Annotation Layer Styles - Critical for Links */
+      /* --- CAPAS DEL PDF --- */
+      
+      /* 1. Canvas (Imagen): z-index implícito bajo */
+      canvas {
+        display: block;
+      }
+
+      /* 2. Text Layer (Selección): z-index medio */
+      .textLayer {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        overflow: hidden;
+        opacity: 1; /* Opacity must be 1 for text selection to work visually, but color is transparent */
+        line-height: 1.0;
+        z-index: 20;
+        mix-blend-mode: multiply; /* Optional: improves text rendering blend */
+      }
+      
+      .textLayer > span {
+        color: transparent;
+        position: absolute;
+        white-space: pre;
+        cursor: text;
+        transform-origin: 0% 0%;
+      }
+
+      /* Highlight color for selection */
+      ::selection {
+        background: rgba(14, 165, 233, 0.3); /* brand-500 with opacity */
+        color: transparent;
+      }
+
+      /* 3. Annotation Layer (Enlaces): z-index alto */
       .annotationLayer {
         position: absolute;
         top: 0;
         left: 0;
         right: 0;
         bottom: 0;
-        transform-origin: 0 0;
-        z-index: 50; /* Ensure it is above the canvas */
-        /* mix-blend-mode removed to prevent interactive elements from disappearing */
+        z-index: 30; 
       }
       
-      /* Let clicks pass through empty areas so drag works */
+      /* Let clicks pass through empty areas of annotation layer to the text layer */
       .annotationLayer {
         pointer-events: none; 
       }
@@ -69,7 +102,6 @@
         cursor: pointer;
       }
       
-      /* Ensure the anchor tag itself fills the space and is clickable */
       .annotationLayer .linkAnnotation > a,
       .annotationLayer .buttonWidgetAnnotation.pushbutton > a {
         display: block;
@@ -78,12 +110,11 @@
         position: absolute;
         top: 0;
         left: 0;
-        pointer-events: auto !important; /* Critical */
+        pointer-events: auto !important; 
       }
 
-      /* Highlight links subtly on hover */
       .annotationLayer .linkAnnotation > a:hover {
-        background-color: rgba(14, 165, 233, 0.1); /* brand-500 with opacity */
+        background-color: rgba(14, 165, 233, 0.1); 
         box-shadow: 0 0 0 1px rgba(14, 165, 233, 0.3);
       }
       
