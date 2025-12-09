@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Upload, Loader2, Check, RefreshCw, Crown, AlertTriangle, Star, Zap, ShieldCheck } from 'lucide-react';
+import { X, Upload, Loader2, Check, RefreshCw, Crown, AlertTriangle, Star, Zap, ShieldCheck, CloudUpload } from 'lucide-react';
 import { analyzePdf } from '../services/gemini';
 import { generateCoverThumbnail, getPdfDocument } from '../services/pdf';
 import { useAppStore } from '../store/context';
@@ -26,7 +26,7 @@ const createSlug = (text: string): string => {
 const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, magazineToEdit }) => {
   const { addMagazine, updateMagazine, magazines } = useAppStore();
   const { user, userProfile } = useAuth();
-  const [step, setStep] = useState<'upload' | 'analyzing' | 'review'>('upload');
+  const [step, setStep] = useState<'upload' | 'analyzing' | 'review' | 'publishing'>('upload');
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string>('');
   
@@ -94,11 +94,10 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, magazineToEd
         setDescription(analysis.description);
         setCategory(analysis.category);
         setIsAiSuggested(!!analysis.isGenerated);
-        
+        setStep('review');
       } catch (error) {
         console.error("Error processing file", error);
-      } finally {
-        setStep('review');
+        setStep('review'); // Go to review even if analysis fails (user can edit manually)
       }
     }
   };
@@ -109,52 +108,59 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, magazineToEd
         return;
     }
 
-    const slug = createSlug(title);
+    setStep('publishing');
 
-    if (magazineToEdit) {
-        // --- EDIT MODE ---
-        const updates: Partial<Magazine> = {
-            title,
-            description,
-            category,
-            slug // Update slug if title changes
-        };
+    try {
+        const slug = createSlug(title);
 
-        // If a new file was uploaded, process PDF details
-        if (file) {
+        if (magazineToEdit) {
+            // --- EDIT MODE ---
+            const updates: Partial<Magazine> = {
+                title,
+                description,
+                category,
+                slug // Update slug if title changes
+            };
+
+            // If a new file was uploaded, process PDF details
+            if (file) {
+                const objectUrl = URL.createObjectURL(file);
+                const pdf = await getPdfDocument(objectUrl);
+                updates.pdfUrl = objectUrl;
+                updates.coverImage = previewUrl;
+                updates.pageCount = pdf.numPages;
+                updates.originalFilename = file.name;
+            }
+
+            await updateMagazine(magazineToEdit.id, updates);
+        } else {
+            // --- CREATE MODE ---
+            if (!file) return;
+
             const objectUrl = URL.createObjectURL(file);
             const pdf = await getPdfDocument(objectUrl);
-            updates.pdfUrl = objectUrl;
-            updates.coverImage = previewUrl;
-            updates.pageCount = pdf.numPages;
-            updates.originalFilename = file.name;
+            
+            const newMagazine: Magazine = {
+                id: crypto.randomUUID(),
+                userId: user.uid, // OWNER ID
+                title,
+                description,
+                category,
+                pdfUrl: objectUrl, // Blob URL
+                coverImage: previewUrl,
+                createdAt: Date.now(),
+                pageCount: pdf.numPages,
+                slug,
+                originalFilename: file.name
+            };
+            await addMagazine(newMagazine);
         }
 
-        updateMagazine(magazineToEdit.id, updates);
-    } else {
-        // --- CREATE MODE ---
-        if (!file) return;
-
-        const objectUrl = URL.createObjectURL(file);
-        const pdf = await getPdfDocument(objectUrl);
-        
-        const newMagazine: Magazine = {
-            id: crypto.randomUUID(),
-            userId: user.uid, // OWNER ID
-            title,
-            description,
-            category,
-            pdfUrl: objectUrl, // Blob URL
-            coverImage: previewUrl,
-            createdAt: Date.now(),
-            pageCount: pdf.numPages,
-            slug,
-            originalFilename: file.name
-        };
-        addMagazine(newMagazine);
+        onClose();
+    } catch (error) {
+        console.error("Error saving magazine:", error);
+        setStep('review'); // Return to review so user can retry
     }
-
-    onClose();
   };
 
   return (
@@ -167,14 +173,16 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, magazineToEd
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-yellow-600">Actualizar Plan</span>
             ) : (
                 <>
-                  {magazineToEdit ? 'Editar Revista' : 'Nueva Revista'}
+                  {step === 'publishing' ? 'Publicando...' : (magazineToEdit ? 'Editar Revista' : 'Nueva Revista')}
                   {isPremium && <Crown className="w-5 h-5 text-yellow-500" />}
                 </>
             )}
           </h2>
-          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors">
-            <X className="w-5 h-5 text-gray-400" />
-          </button>
+          {step !== 'publishing' && (
+            <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+                <X className="w-5 h-5 text-gray-400" />
+            </button>
+          )}
         </div>
 
         {/* Content */}
@@ -290,12 +298,50 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, magazineToEd
                 )}
 
                 {step === 'analyzing' && (
-                    <div className="flex flex-col items-center justify-center py-12">
-                    <Loader2 className="w-12 h-12 text-brand-500 animate-spin mb-4" />
-                    <h3 className="text-xl font-medium text-white mb-2">Analizando documento...</h3>
-                    <p className="text-gray-400 text-center max-w-md">
-                        Nuestra IA está leyendo el contenido para sugerir un título, descripción y categoría automáticamente.
-                    </p>
+                    <div className="flex flex-col items-center justify-center py-12 text-center">
+                        <div className="relative">
+                            <Loader2 className="w-16 h-16 text-brand-500 animate-spin mb-6" />
+                            <div className="absolute inset-0 flex items-center justify-center">
+                                <Star className="w-6 h-6 text-brand-300 animate-pulse" />
+                            </div>
+                        </div>
+                        <h3 className="text-xl font-medium text-white mb-2">Analizando con IA...</h3>
+                        <p className="text-gray-400 max-w-sm mx-auto">
+                            Estamos leyendo tu PDF para generar automáticamente el título, descripción y categoría.
+                        </p>
+                    </div>
+                )}
+                
+                {step === 'publishing' && (
+                     <div className="flex flex-col items-center justify-center py-12 text-center">
+                        <div className="relative w-20 h-20 mb-8">
+                             {/* Pulsing Cloud Circle */}
+                             <div className="absolute inset-0 bg-brand-500/20 rounded-full animate-ping"></div>
+                             <div className="absolute inset-0 bg-brand-500/10 rounded-full animate-pulse"></div>
+                             <div className="relative w-full h-full bg-dark-900 border border-brand-500/50 rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(14,165,233,0.3)]">
+                                <CloudUpload className="w-10 h-10 text-brand-400 animate-bounce" />
+                             </div>
+                        </div>
+                        
+                        <h3 className="text-2xl font-bold text-white mb-2">Subiendo Revista</h3>
+                        <p className="text-brand-200 mb-6">Por favor espera, no cierres esta ventana.</p>
+                        
+                        {/* Progress Bar Visual */}
+                        <div className="w-full max-w-sm bg-dark-900 border border-white/10 rounded-full h-2 mb-2 overflow-hidden relative">
+                             <div className="absolute inset-0 bg-brand-900/50"></div>
+                             {/* Animated Striped Bar */}
+                             <div className="h-full bg-gradient-to-r from-brand-600 via-brand-400 to-brand-600 w-[60%] animate-[shimmer_2s_infinite_linear] rounded-full relative overflow-hidden">
+                                 <div className="absolute inset-0 bg-[linear-gradient(45deg,rgba(255,255,255,0.15)_25%,transparent_25%,transparent_50%,rgba(255,255,255,0.15)_50%,rgba(255,255,255,0.15)_75%,transparent_75%,transparent)] bg-[length:1rem_1rem]"></div>
+                             </div>
+                        </div>
+                        <p className="text-xs text-gray-500">Guardando en la nube segura...</p>
+                        
+                        <style>{`
+                            @keyframes shimmer {
+                                0% { transform: translateX(-100%); }
+                                100% { transform: translateX(200%); }
+                            }
+                        `}</style>
                     </div>
                 )}
 

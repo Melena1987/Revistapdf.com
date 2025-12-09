@@ -130,10 +130,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } catch (error: any) {
       if (error.message === "LIMIT_REACHED") {
          alert("Has alcanzado el límite de 5 revistas gratuitas.\n\nPara subir más contenido ilimitado, contacta al administrador para obtener una cuenta Premium.");
-         return;
+         throw error; // Propagate error to stop UI loader
       }
       console.error("Error adding magazine:", error);
       alert("Error al subir la revista. Verifica permisos o conexión.");
+      throw error; // Propagate error to stop UI loader
     }
   };
 
@@ -156,6 +157,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } catch (error: any) {
       console.error("Error updating magazine:", error);
       alert("Error al actualizar.");
+      throw error; // Propagate error
     }
   };
 
