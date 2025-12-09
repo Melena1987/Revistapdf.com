@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Upload, Loader2, Check, RefreshCw, Crown, AlertTriangle } from 'lucide-react';
+import { X, Upload, Loader2, Check, RefreshCw, Crown, AlertTriangle, Star, Zap, ShieldCheck } from 'lucide-react';
 import { analyzePdf } from '../services/gemini';
 import { generateCoverThumbnail, getPdfDocument } from '../services/pdf';
 import { useAppStore } from '../store/context';
@@ -154,12 +154,18 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, magazineToEd
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-      <div className="bg-dark-800 w-full max-w-2xl rounded-2xl border border-white/10 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className={`bg-dark-800 w-full rounded-2xl border border-white/10 shadow-2xl overflow-hidden flex flex-col max-h-[90vh] transition-all duration-500 ${isLimitReached && step === 'upload' ? 'max-w-4xl' : 'max-w-2xl'}`}>
         {/* Header */}
         <div className="p-4 border-b border-white/10 flex justify-between items-center bg-dark-900/50">
           <h2 className="text-xl font-semibold text-white flex items-center gap-2">
-            {magazineToEdit ? 'Editar Revista' : 'Nueva Revista'}
-            {isPremium && <Crown className="w-5 h-5 text-yellow-500" />}
+            {step === 'upload' && isLimitReached ? (
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-yellow-600">Actualizar Plan</span>
+            ) : (
+                <>
+                  {magazineToEdit ? 'Editar Revista' : 'Nueva Revista'}
+                  {isPremium && <Crown className="w-5 h-5 text-yellow-500" />}
+                </>
+            )}
           </h2>
           <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors">
             <X className="w-5 h-5 text-gray-400" />
@@ -167,32 +173,88 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, magazineToEd
         </div>
 
         {/* Content */}
-        <div className="p-6 overflow-y-auto custom-scrollbar">
+        <div className="overflow-y-auto custom-scrollbar relative">
           
-          {/* LIMIT REACHED STATE */}
+          {/* LIMIT REACHED STATE - PREMIUM SALES PAGE */}
           {step === 'upload' && isLimitReached ? (
-             <div className="flex flex-col items-center justify-center py-12 text-center">
-                <div className="w-20 h-20 bg-yellow-500/10 rounded-full flex items-center justify-center mb-6">
-                    <Crown className="w-10 h-10 text-yellow-500" />
-                </div>
-                <h3 className="text-2xl font-bold text-white mb-2">Límite Alcanzado</h3>
-                <p className="text-gray-400 max-w-md mb-8">
-                    Has alcanzado el límite de 5 revistas para cuentas gratuitas.
-                    Para seguir subiendo contenido ilimitado, necesitas una cuenta Premium.
-                </p>
-                <div className="bg-dark-900/50 rounded-lg p-4 border border-white/5 w-full max-w-md">
-                    <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm text-gray-400">Tus revistas</span>
-                        <span className="text-sm font-bold text-white">{currentCount} / 5</span>
+             <div className="flex flex-col md:flex-row">
+                 {/* Left: Value Proposition */}
+                 <div className="p-8 md:w-1/2 flex flex-col justify-center relative overflow-hidden">
+                    <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-yellow-500/5 to-transparent pointer-events-none" />
+                    
+                    <div className="relative z-10">
+                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 text-xs font-bold uppercase tracking-wider mb-6 w-fit">
+                            <Star className="w-3 h-3 fill-current" />
+                            Premium
+                        </div>
+
+                        <h3 className="text-3xl font-bold text-white mb-4 leading-tight">
+                            Elimina los límites de tu creatividad
+                        </h3>
+                        <p className="text-gray-400 mb-8 leading-relaxed">
+                            Has alcanzado el límite de 5 revistas del plan gratuito. Actualiza a Premium y desbloquea todo el potencial de tu biblioteca digital.
+                        </p>
+
+                        <ul className="space-y-4 mb-8">
+                            <li className="flex items-center gap-3 text-gray-200">
+                                <div className="w-6 h-6 rounded-full bg-green-500/20 flex items-center justify-center shrink-0">
+                                    <Check className="w-4 h-4 text-green-400" />
+                                </div>
+                                <span>Subidas de PDF <strong>ilimitadas</strong></span>
+                            </li>
+                            <li className="flex items-center gap-3 text-gray-200">
+                                <div className="w-6 h-6 rounded-full bg-green-500/20 flex items-center justify-center shrink-0">
+                                    <Check className="w-4 h-4 text-green-400" />
+                                </div>
+                                <span>Análisis IA sin restricciones</span>
+                            </li>
+                            <li className="flex items-center gap-3 text-gray-200">
+                                <div className="w-6 h-6 rounded-full bg-green-500/20 flex items-center justify-center shrink-0">
+                                    <Check className="w-4 h-4 text-green-400" />
+                                </div>
+                                <span>Insignia Pro en tu perfil</span>
+                            </li>
+                             <li className="flex items-center gap-3 text-gray-200">
+                                <div className="w-6 h-6 rounded-full bg-green-500/20 flex items-center justify-center shrink-0">
+                                    <Check className="w-4 h-4 text-green-400" />
+                                </div>
+                                <span>Apoyas el desarrollo de la plataforma</span>
+                            </li>
+                        </ul>
                     </div>
-                    <div className="w-full bg-gray-700 h-2 rounded-full overflow-hidden">
-                        <div className="bg-brand-500 h-full w-full"></div>
-                    </div>
-                </div>
-                <p className="mt-8 text-sm text-gray-500">Contacta al administrador para actualizar tu plan.</p>
+                 </div>
+
+                 {/* Right: Pricing Card */}
+                 <div className="p-8 md:w-1/2 bg-dark-900/50 border-l border-white/5 flex flex-col items-center justify-center text-center">
+                     <div className="w-20 h-20 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-2xl rotate-3 flex items-center justify-center shadow-2xl shadow-yellow-500/20 mb-6 group hover:rotate-6 transition-transform duration-300">
+                         <Crown className="w-10 h-10 text-white drop-shadow-md" />
+                     </div>
+
+                     <h4 className="text-lg font-medium text-white mb-2">Suscripción Anual</h4>
+                     <div className="flex items-baseline gap-1 mb-2">
+                        <span className="text-5xl font-bold text-white tracking-tight">13€</span>
+                        <span className="text-gray-400">/año</span>
+                     </div>
+                     <p className="text-xs text-gray-500 mb-8">+ Impuestos aplicables</p>
+
+                     <a 
+                        href="https://buy.stripe.com/8x24gz2yW6dzfwsgyH8Zq0A"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full py-4 px-6 bg-white text-black hover:bg-gray-100 font-bold text-lg rounded-xl shadow-lg hover:shadow-xl hover:scale-[1.02] transition-all flex items-center justify-center gap-2 group"
+                     >
+                        <span>Obtener Premium</span>
+                        <Zap className="w-5 h-5 text-yellow-500 group-hover:fill-current transition-colors" />
+                     </a>
+
+                     <div className="mt-6 flex items-center gap-2 text-xs text-gray-500">
+                        <ShieldCheck className="w-4 h-4" />
+                        Pago seguro vía Stripe
+                     </div>
+                 </div>
              </div>
           ) : (
-            <>
+            <div className="p-6">
                 {step === 'upload' && (
                     <div 
                     onClick={() => fileInputRef.current?.click()}
@@ -214,7 +276,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, magazineToEd
                     <p className="text-gray-400 text-sm">
                         {!isPremium && !magazineToEdit && (
                             <span className="block mb-2 text-brand-400">
-                                {5 - currentCount} subidas restantes
+                                {5 - currentCount} subidas restantes (Plan Gratuito)
                             </span>
                         )}
                         Arrastra y suelta o haz clic para seleccionar
@@ -295,7 +357,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, magazineToEd
                     </div>
                     </div>
                 )}
-            </>
+            </div>
           )}
         </div>
 
