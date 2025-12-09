@@ -89,7 +89,7 @@
         left: 0;
         right: 0;
         bottom: 0;
-        z-index: 30;
+        z-index: 50 !important; /* Increased to ensure it's on top */
         pointer-events: none; /* Let clicks pass through empty areas to flipbook */
       }
 
@@ -99,12 +99,14 @@
       .annotationLayer .popupAnnotation,
       .annotationLayer .buttonWidgetAnnotation,
       .annotationLayer .textWidgetAnnotation,
-      .annotationLayer .choiceWidgetAnnotation {
+      .annotationLayer .choiceWidgetAnnotation,
+      .annotationLayer a {
         pointer-events: auto !important;
         cursor: pointer;
+        display: block; /* Ensure they have dimension */
       }
       
-      /* Ensure anchor tags inside annotations are clickable */
+      /* Ensure anchor tags inside annotations are clickable and fill space */
       .annotationLayer .linkAnnotation > a,
       .annotationLayer .buttonWidgetAnnotation.pushbutton > a {
         display: block;
