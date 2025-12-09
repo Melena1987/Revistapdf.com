@@ -82,15 +82,15 @@
         color: transparent;
       }
 
-      /* 3. Annotation Layer (Enlaces): z-index alto */
+      /* 3. Annotation Layer (Enlaces): z-index MAXIMO */
       .annotationLayer {
         position: absolute;
         top: 0;
         left: 0;
         right: 0;
         bottom: 0;
-        z-index: 50 !important; /* Increased to ensure it's on top */
-        pointer-events: none; /* Let clicks pass through empty areas to flipbook */
+        z-index: 1000 !important; /* Force on top of everything */
+        pointer-events: none; /* Let empty areas pass through to flipbook */
       }
 
       /* Re-enable pointer events ONLY on the actual links/inputs */
@@ -102,8 +102,8 @@
       .annotationLayer .choiceWidgetAnnotation,
       .annotationLayer a {
         pointer-events: auto !important;
-        cursor: pointer;
-        display: block; /* Ensure they have dimension */
+        cursor: pointer !important;
+        display: block;
       }
       
       /* Ensure anchor tags inside annotations are clickable and fill space */
@@ -116,6 +116,7 @@
         top: 0;
         left: 0;
         pointer-events: auto !important; 
+        z-index: 1001 !important;
       }
 
       .annotationLayer .linkAnnotation > a:hover {
@@ -123,9 +124,14 @@
         box-shadow: 0 0 0 1px rgba(14, 165, 233, 0.3);
       }
       
-      /* Flipbook container shadow */
+      /* Flipbook Shadows Fix: Ensure they don't block clicks */
       .stf__wrapper {
         box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+      }
+      
+      /* Force React PageFlip internal shadows to allow clicks through */
+      .stf__block {
+        pointer-events: auto !important;
       }
     </style>
   <script type="importmap">
