@@ -12,6 +12,10 @@ export interface Magazine {
   originalFilename?: string;
 }
 
+export interface UserProfile {
+  role?: string;
+}
+
 export interface UploadState {
   isUploading: boolean;
   progress: number;

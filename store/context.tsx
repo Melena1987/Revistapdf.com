@@ -35,7 +35,7 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const { user } = useAuth();
+  const { user, userProfile } = useAuth();
   const [magazines, setMagazines] = useState<Magazine[]>([]);
 
   // Listen to Firestore changes in real-time, filtered by User
@@ -106,6 +106,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const addMagazine = async (mag: Magazine) => {
     try {
+      // Check Limit for Non-Premium Users
+      const isPremium = userProfile?.role === 'premium';
+      if (!isPremium && magazines.length >= 5) {
+         throw new Error("LIMIT_REACHED");
+      }
+
       // 1. Upload PDF and Cover Image if they are local blob URLs
       const remotePdfUrl = await uploadAsset(mag.pdfUrl, 'pdfs', mag.id, mag.originalFilename);
       const remoteCoverUrl = mag.coverImage 
@@ -122,6 +128,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       // 3. Save to Firestore
       await setDoc(doc(db, "magazines", mag.id), newMagazine);
     } catch (error: any) {
+      if (error.message === "LIMIT_REACHED") {
+         alert("Has alcanzado el límite de 5 revistas gratuitas.\n\nPara subir más contenido ilimitado, contacta al administrador para obtener una cuenta Premium.");
+         return;
+      }
       console.error("Error adding magazine:", error);
       alert("Error al subir la revista. Verifica permisos o conexión.");
     }
