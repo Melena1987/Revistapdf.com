@@ -31,9 +31,12 @@
       }
     </script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
-    <!-- PDF.js CDN -->
+    
+    <!-- PDF.js Core -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-    <!-- PDF.js Viewer CSS (Required for Annotation Layer & Text Layer) -->
+    <!-- PDF.js Viewer (Required for AnnotationLayer & TextLayer Logic) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf_viewer.min.js"></script>
+    <!-- PDF.js Viewer CSS -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf_viewer.min.css">
     
     <script>
@@ -48,6 +51,7 @@
       /* 1. Canvas (Imagen): z-index implícito bajo */
       canvas {
         display: block;
+        z-index: 10;
       }
 
       /* 2. Text Layer (Selección): z-index medio */
@@ -58,10 +62,10 @@
         right: 0;
         bottom: 0;
         overflow: hidden;
-        opacity: 1; /* Opacity must be 1 for text selection to work visually, but color is transparent */
+        opacity: 1; 
         line-height: 1.0;
         z-index: 20;
-        mix-blend-mode: multiply; /* Optional: improves text rendering blend */
+        mix-blend-mode: multiply;
       }
       
       .textLayer > span {
@@ -74,7 +78,7 @@
 
       /* Highlight color for selection */
       ::selection {
-        background: rgba(14, 165, 233, 0.3); /* brand-500 with opacity */
+        background: rgba(14, 165, 233, 0.3);
         color: transparent;
       }
 
@@ -85,23 +89,22 @@
         left: 0;
         right: 0;
         bottom: 0;
-        z-index: 30; 
-      }
-      
-      /* Let clicks pass through empty areas of annotation layer to the text layer */
-      .annotationLayer {
-        pointer-events: none; 
+        z-index: 30;
+        pointer-events: none; /* Let clicks pass through empty areas to flipbook */
       }
 
       /* Re-enable pointer events ONLY on the actual links/inputs */
       .annotationLayer section,
       .annotationLayer .linkAnnotation,
       .annotationLayer .popupAnnotation,
-      .annotationLayer .buttonWidgetAnnotation {
+      .annotationLayer .buttonWidgetAnnotation,
+      .annotationLayer .textWidgetAnnotation,
+      .annotationLayer .choiceWidgetAnnotation {
         pointer-events: auto !important;
         cursor: pointer;
       }
       
+      /* Ensure anchor tags inside annotations are clickable */
       .annotationLayer .linkAnnotation > a,
       .annotationLayer .buttonWidgetAnnotation.pushbutton > a {
         display: block;
