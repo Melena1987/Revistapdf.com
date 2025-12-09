@@ -44,6 +44,11 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, magazineToEd
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Generate dynamic Stripe URL with user metadata
+  const stripeUrl = user 
+    ? `https://buy.stripe.com/8x24gz2yW6dzfwsgyH8Zq0A?client_reference_id=${user.uid}&prefilled_email=${encodeURIComponent(user.email || '')}`
+    : 'https://buy.stripe.com/8x24gz2yW6dzfwsgyH8Zq0A';
+
   // Initialize state when modal opens or editing target changes
   useEffect(() => {
     if (isOpen) {
@@ -238,7 +243,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, magazineToEd
                      <p className="text-xs text-gray-500 mb-8">+ Impuestos aplicables</p>
 
                      <a 
-                        href="https://buy.stripe.com/8x24gz2yW6dzfwsgyH8Zq0A"
+                        href={stripeUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="w-full py-4 px-6 bg-white text-black hover:bg-gray-100 font-bold text-lg rounded-xl shadow-lg hover:shadow-xl hover:scale-[1.02] transition-all flex items-center justify-center gap-2 group"
