@@ -42,6 +42,10 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
   
   // Dimensions for the flipbook
   const [bookDimensions, setBookDimensions] = useState({ width: 0, height: 0 });
+  // PDF Aspect Ratio (width / height) - Default to A4 (approx 0.707)
+  const [pdfAspectRatio, setPdfAspectRatio] = useState(0.7071);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const bookRef = useRef<any>(null); // React-pageflip ref
 
@@ -58,6 +62,14 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
         const doc = await getPdfDocument(magazine.pdfUrl);
         setPdfDoc(doc);
         setTotalPages(doc.numPages);
+        
+        // Detect Aspect Ratio from Page 1 to ensure fit
+        const page = await doc.getPage(1);
+        const viewport = page.getViewport({ scale: 1 });
+        if (viewport.width && viewport.height) {
+            setPdfAspectRatio(viewport.width / viewport.height);
+        }
+
       } catch (err: any) {
         console.error("Error loading PDF", err);
         setError("No se pudo cargar el documento.");
@@ -74,37 +86,38 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
         if (!containerRef.current) return;
         const { clientWidth, clientHeight } = containerRef.current;
         
-        // Safety margin
         const w = clientWidth;
         const h = clientHeight;
 
-        // Determine if mobile (portrait) or desktop (landscape)
-        // Note: react-pageflip uses 'width' as the width of a SINGLE page.
-        // So in landscape, total width is 2 * width.
-        const isMobile = window.innerWidth < 768;
+        const mobile = window.innerWidth < 768;
+        setIsMobile(mobile);
         
         let pageW, pageH;
 
-        if (isMobile) {
-            // Mobile: Single page fits width
+        if (mobile) {
+            // Mobile: Single page fits width or height
             pageH = h - 20;
-            pageW = Math.floor(pageH / 1.414); // A4 Ratio
+            pageW = Math.floor(pageH * pdfAspectRatio);
+            
+            // If width overflows, fit by width
             if (pageW > w - 20) {
                 pageW = w - 20;
-                pageH = Math.floor(pageW * 1.414);
+                pageH = Math.floor(pageW / pdfAspectRatio);
             }
         } else {
             // Desktop: Two pages side by side
-            // Available width for ONE page is half screen
+            // Available width for ONE page is approx half screen
             const availableW = (w - 60) / 2; 
             const availableH = h - 40;
 
+            // Try fitting by height
             pageH = availableH;
-            pageW = Math.floor(pageH / 1.414);
+            pageW = Math.floor(pageH * pdfAspectRatio);
 
+            // If width overflows
             if (pageW > availableW) {
                 pageW = availableW;
-                pageH = Math.floor(pageW * 1.414);
+                pageH = Math.floor(pageW / pdfAspectRatio);
             }
         }
 
@@ -114,7 +127,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
     handleResize();
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, []);
+  }, [pdfAspectRatio]);
 
   const handleFlip = useCallback((e: any) => {
       // e.data is the index of the new top page
@@ -241,18 +254,10 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
                     transformOrigin: 'center center'
                 }}
             >
-                {/* 
-                  Note on Zoom: react-pageflip logic gets messed up if we scale the parent div heavily 
-                  while trying to flip interactively. Ideally, users should flip at 100% and zoom only to read static.
-                */}
                 <HTMLFlipBook
                     width={bookDimensions.width}
                     height={bookDimensions.height}
                     size="fixed"
-                    minWidth={300}
-                    maxWidth={1000}
-                    minHeight={400}
-                    maxHeight={1414}
                     showCover={true}
                     maxShadowOpacity={0.5}
                     mobileScrollSupport={true}
@@ -260,7 +265,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
                     ref={bookRef}
                     className="shadow-2xl"
                     style={{ margin: '0 auto' }}
-                    usePortrait={window.innerWidth < 768}
+                    usePortrait={isMobile}
                     startPage={0}
                     drawShadow={true}
                     flippingTime={1000}
