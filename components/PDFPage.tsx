@@ -55,7 +55,6 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
         if (canvas) {
           canvas.width = viewport.width;
           canvas.height = viewport.height;
-          // explicit styling ensures alignment with annotation layer
           canvas.style.width = `${cssViewport.width}px`;
           canvas.style.height = `${cssViewport.height}px`;
           canvas.style.objectFit = 'fill'; 
@@ -80,7 +79,6 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
         setIsRendering(false);
 
         // --- Layers Rendering (Post-Canvas) ---
-        // Calculate offsets to center the layers perfectly over the canvas content
         const offsetX = (width - cssViewport.width) / 2;
         const offsetY = (height - cssViewport.height) / 2;
         const pdfjs = (window as any).pdfjsLib;
@@ -88,9 +86,7 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
         // --- 2. Render Text Layer ---
         if (textLayerRef.current) {
            const textDiv = textLayerRef.current;
-           textDiv.innerHTML = ''; // Clean previous
-           
-           // Apply styles
+           textDiv.innerHTML = '';
            textDiv.style.width = `${cssViewport.width}px`;
            textDiv.style.height = `${cssViewport.height}px`;
            textDiv.style.left = `${offsetX}px`;
@@ -112,7 +108,7 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
            }
         }
 
-        // --- 3. Render Annotation Layer ---
+        // --- 3. Render Annotation Layer (LINKS FIX) ---
         if (annotationLayerRef.current) {
             const annotationDiv = annotationLayerRef.current;
             annotationDiv.innerHTML = '';
@@ -122,27 +118,35 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
             annotationDiv.style.left = `${offsetX}px`;
             annotationDiv.style.top = `${offsetY}px`;
             annotationDiv.style.setProperty('--scale-factor', `${scale}`);
-            // Ensure pointer events are active on the container logic
-            annotationDiv.style.pointerEvents = 'none';
 
             try {
                 const annotations = await page.getAnnotations();
                 if (mounted && annotations.length > 0) {
                     
-                    // Mock LinkService for simple navigation
+                    // LinkService robusto para manejar clicks internos y externos
                     const linkService = {
                         externalLinkTarget: 2, // _blank
                         externalLinkRel: 'noopener noreferrer',
-                        getDestinationHash: () => null,
+                        getDestinationHash: (dest: any) => JSON.stringify(dest),
+                        getAnchorUrl: () => '#',
+                        setHash: () => {},
+                        executeNamedAction: () => {},
+                        cachePageRef: () => {},
+                        isPageVisible: () => true,
                         goToDestination: async (dest: any) => {
                              if (!onPageJump) return;
-                             if (Array.isArray(dest)) {
-                                 try {
-                                    const index = await pdfDoc.getPageIndex(dest[0]);
-                                    onPageJump(index);
-                                 } catch (e) {
-                                     console.warn("Could not resolve internal link", e);
+                             try {
+                                 let index = -1;
+                                 if (typeof dest === 'string') {
+                                     // Buscar por ID de destino si es necesario
+                                 } else if (Array.isArray(dest)) {
+                                     index = await pdfDoc.getPageIndex(dest[0]);
                                  }
+                                 if (index !== -1) {
+                                     onPageJump(index);
+                                 }
+                             } catch (e) {
+                                 console.warn("Error al resolver enlace interno", e);
                              }
                         }
                     };
@@ -165,48 +169,34 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
                              downloadManager: null
                          });
 
-                         // --- CRITICAL FIX: Robust Link Handling ---
-                         // We select .linkAnnotation and 'a' tags specifically to handle events
-                         // BEFORE they bubble up to the flipbook container.
-                         const interactiveElements = annotationDiv.querySelectorAll('.linkAnnotation, a, button, input');
+                         // --- FIX CRITICO: Interceptar eventos para que react-pageflip no los robe ---
+                         const interactiveElements = annotationDiv.querySelectorAll('.linkAnnotation, a, .buttonWidgetAnnotation, input, select, textarea');
                          
                          interactiveElements.forEach((el) => {
                              const element = el as HTMLElement;
+                             element.style.pointerEvents = 'auto';
 
-                             // 1. Stop Drag/Swipe Propagation
-                             // These events trigger the Flipbook page turn. We must stop them immediately on links.
+                             // Función para detener la propagación agresivamente
                              const stopPropagation = (e: Event) => {
+                                 // Detener la propagación evita que el Flipbook detecte un inicio de 'drag'
                                  e.stopPropagation();
-                                 // e.stopImmediatePropagation(); // Optional: use if other listeners are interfering
                              };
 
-                             // Listen to phases that start gestures
-                             element.addEventListener('mousedown', stopPropagation, true); // Capture phase
-                             element.addEventListener('touchstart', stopPropagation, { passive: false });
-                             element.addEventListener('pointerdown', stopPropagation);
-
-                             // 2. Force Click Handling
-                             // Manually handle navigation to ensure reliability
+                             // Registramos en fase de CAPTURA (true) para adelantarnos al flipbook
+                             element.addEventListener('mousedown', stopPropagation, { capture: true });
+                             element.addEventListener('touchstart', stopPropagation, { capture: true, passive: false });
+                             element.addEventListener('pointerdown', stopPropagation, { capture: true });
                              element.addEventListener('click', (e) => {
-                                 e.stopPropagation(); // Stop bubbling to Flipbook
+                                 e.stopPropagation();
                                  
-                                 // Check if it's an anchor tag or inside one
-                                 const link = element.tagName === 'A' ? element as HTMLAnchorElement : element.querySelector('a');
-                                 
-                                 if (link) {
-                                     const href = link.getAttribute('href');
-                                     if (!href) return;
-
-                                     // Handle External Links
-                                     if (href.startsWith('http') || href.startsWith('mailto')) {
-                                         e.preventDefault(); // Prevent default just in case
-                                         window.open(href, link.target || '_blank', 'noopener,noreferrer');
-                                     }
-                                     // Internal links are usually handled by PDF.js LinkService or hash change
+                                 // Si es un link externo, forzamos su apertura manual por si PDF.js falla
+                                 const link = element.tagName === 'A' ? (element as HTMLAnchorElement) : element.querySelector('a');
+                                 if (link && link.href && (link.href.startsWith('http') || link.href.startsWith('mailto'))) {
+                                     e.preventDefault();
+                                     window.open(link.href, link.target || '_blank', 'noopener,noreferrer');
                                  }
-                             });
+                             }, { capture: true });
                              
-                             // Visual cue
                              element.style.cursor = 'pointer';
                          });
                     }
@@ -237,21 +227,21 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
   return (
     <div className="relative w-full h-full flex items-center justify-center overflow-hidden bg-white">
       {isRendering && !rendered && (
-          <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none bg-white">
+          <div className="absolute inset-0 flex items-center justify-center z-[5] pointer-events-none bg-white">
               <Loader2 className="w-8 h-8 text-brand-500 animate-spin" />
           </div>
       )}
       
-      {/* 1. Canvas (Background Image) */}
+      {/* 1. Canvas (Imagen de fondo) */}
       <canvas ref={canvasRef} className="block select-none relative z-10" />
       
-      {/* 2. Text Layer (Selectable Text) */}
+      {/* 2. Capa de Texto (Seleccionable) */}
       <div ref={textLayerRef} className="textLayer" />
 
-      {/* 3. Annotation Layer (Links/Forms) */}
+      {/* 3. Capa de Anotaciones (Enlaces/Botones interactivos) */}
       <div ref={annotationLayerRef} className="annotationLayer" />
       
-      {/* Page shadow gradient */}
+      {/* Sombras de pliegue para realismo */}
       <div className="absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-black/5 to-transparent pointer-events-none z-40" />
       <div className="absolute inset-y-0 left-0 w-2 bg-gradient-to-r from-black/5 to-transparent pointer-events-none z-40" />
     </div>

@@ -48,13 +48,13 @@
       
       /* --- CAPAS DEL PDF --- */
       
-      /* 1. Canvas (Imagen): z-index implícito bajo */
+      /* 1. Canvas (Imagen) */
       canvas {
         display: block;
         z-index: 10;
       }
 
-      /* 2. Text Layer (Selección): z-index medio */
+      /* 2. Text Layer (Selección) */
       .textLayer {
         position: absolute;
         top: 0;
@@ -62,10 +62,10 @@
         right: 0;
         bottom: 0;
         overflow: hidden;
-        opacity: 1; 
+        opacity: 0.2; /* Sutil para no estorbar visualmente pero permitir selección */
         line-height: 1.0;
         z-index: 20;
-        mix-blend-mode: multiply;
+        pointer-events: none; /* Dejar pasar eventos a la capa de anotaciones */
       }
       
       .textLayer > span {
@@ -74,6 +74,7 @@
         white-space: pre;
         cursor: text;
         transform-origin: 0% 0%;
+        pointer-events: auto; /* Re-habilitar solo para el texto */
       }
 
       /* Highlight color for selection */
@@ -82,56 +83,60 @@
         color: transparent;
       }
 
-      /* 3. Annotation Layer (Enlaces): z-index MAXIMO */
+      /* 3. Annotation Layer (Enlaces y Botones): CRITICAL Z-INDEX */
       .annotationLayer {
         position: absolute;
         top: 0;
         left: 0;
         right: 0;
         bottom: 0;
-        z-index: 1000 !important; /* Force on top of everything */
-        pointer-events: none; /* Let empty areas pass through to flipbook */
+        z-index: 100 !important; 
+        pointer-events: none; /* Importante: áreas vacías dejan pasar el drag del flipbook */
       }
 
-      /* Re-enable pointer events ONLY on the actual links/inputs */
+      /* Forzar interactividad en anotaciones */
       .annotationLayer section,
       .annotationLayer .linkAnnotation,
-      .annotationLayer .popupAnnotation,
       .annotationLayer .buttonWidgetAnnotation,
-      .annotationLayer .textWidgetAnnotation,
-      .annotationLayer .choiceWidgetAnnotation,
-      .annotationLayer a {
+      .annotationLayer .popupAnnotation,
+      .annotationLayer a,
+      .annotationLayer area {
         pointer-events: auto !important;
         cursor: pointer !important;
-        display: block;
-      }
-      
-      /* Ensure anchor tags inside annotations are clickable and fill space */
-      .annotationLayer .linkAnnotation > a,
-      .annotationLayer .buttonWidgetAnnotation.pushbutton > a {
-        display: block;
-        width: 100%;
-        height: 100%;
-        position: absolute;
-        top: 0;
-        left: 0;
-        pointer-events: auto !important; 
-        z-index: 1001 !important;
+        display: block !important;
+        z-index: 110 !important;
       }
 
-      .annotationLayer .linkAnnotation > a:hover {
-        background-color: rgba(14, 165, 233, 0.1); 
-        box-shadow: 0 0 0 1px rgba(14, 165, 233, 0.3);
+      /* Estilo visual para enlaces al pasar el ratón */
+      .annotationLayer .linkAnnotation > a:hover,
+      .annotationLayer .buttonWidgetAnnotation:hover {
+        background-color: rgba(14, 165, 233, 0.15) !important;
+        box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.4) !important;
+        border-radius: 2px;
+        transition: all 0.1s ease;
+      }
+
+      /* Asegurar que los botones internos de PDF.js sean clicables */
+      .annotationLayer .linkAnnotation > a {
+        width: 100% !important;
+        height: 100% !important;
+        position: absolute !important;
+        top: 0 !important;
+        left: 0 !important;
       }
       
-      /* Flipbook Shadows Fix: Ensure they don't block clicks */
+      /* Flipbook Shadows Fix */
       .stf__wrapper {
         box-shadow: 0 20px 50px rgba(0,0,0,0.5);
       }
       
-      /* Force React PageFlip internal shadows to allow clicks through */
       .stf__block {
         pointer-events: auto !important;
+      }
+
+      /* Prevenir que el sombreado interno del flipbook bloquee los clics */
+      .stf__shadow {
+        pointer-events: none !important;
       }
     </style>
   <script type="importmap">
