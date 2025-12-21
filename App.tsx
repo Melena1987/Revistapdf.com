@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { HashRouter as Router, Routes, Route, useParams, useNavigate, Navigate } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
@@ -11,6 +12,7 @@ import MagazineCard from './components/MagazineCard';
 import ShareModal from './components/ShareModal';
 import Login from './components/Login';
 import { Magazine } from './types';
+import { updateMetaTags, resetMetaTags } from './services/seo';
 
 // Protected Route Component
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -45,8 +47,22 @@ const PublicViewer: React.FC = () => {
             const mag = await getMagazineBySlug(slug);
             setMagazine(mag);
             setLoading(false);
+            
+            if (mag) {
+                // Update SEO Meta Tags for social sharing
+                updateMetaTags(
+                    mag.title,
+                    mag.description || `Lee "${mag.title}" en formato revista digital en REVISTAPDF.COM`,
+                    mag.coverImage || ''
+                );
+            }
         };
         fetchMag();
+
+        // Cleanup: Reset to original metadata when leaving the viewer
+        return () => {
+            resetMetaTags();
+        };
     }, [slug, getMagazineBySlug]);
 
     if (loading) {
@@ -84,7 +100,6 @@ const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  // Handlers
   const handleOpenUpload = () => {
     setEditingMagazine(null);
     setUploadModalOpen(true);
@@ -101,12 +116,8 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  // Preview local (in dashboard modal) or navigate to public link
   const handleView = (mag: Magazine) => {
-      // Option A: Open in Dashboard Modal (Quick Preview)
       setSelectedMagazine(mag);
-      // Option B: Navigate to public link (Uncomment if preferred)
-      // navigate(`/view/${mag.slug || mag.id}`);
   };
 
   return (
@@ -118,7 +129,6 @@ const Dashboard: React.FC = () => {
                 <h2 className="text-2xl font-bold text-white">Mis Revistas</h2>
             </div>
         
-            {/* Grid */}
             <div className="grid grid-cols-1 min-[450px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
                 {magazines.map((mag) => (
                     <MagazineCard 
@@ -141,19 +151,16 @@ const Dashboard: React.FC = () => {
                 )}
             </div>
 
-            {/* Viewer Modal Overlay (For quick preview in Dashboard) */}
             {selectedMagazine && (
                 <FlipbookViewer magazine={selectedMagazine} onClose={() => setSelectedMagazine(null)} />
             )}
 
-            {/* Upload/Edit Modal */}
             <UploadModal 
                 isOpen={isUploadModalOpen} 
                 onClose={() => setUploadModalOpen(false)} 
                 magazineToEdit={editingMagazine}
             />
 
-            {/* Share Modal */}
             {sharingMagazine && (
                 <ShareModal
                     magazine={sharingMagazine}
@@ -180,15 +187,11 @@ const App: React.FC = () => {
         <Router>
             <Routes>
                 <Route path="/login" element={<Login />} />
-                
-                {/* Public Access to View specific ID or Slug */}
                 <Route path="/view/:slug" element={
                     <MainLayout>
                         <PublicViewer />
                     </MainLayout>
                 } />
-                
-                {/* Protected Dashboard */}
                 <Route path="/" element={
                     <ProtectedRoute>
                         <MainLayout>

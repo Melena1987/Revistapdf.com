@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { AIAnalysisResult } from "../types";
 
@@ -18,7 +19,6 @@ const fileToGenerativePart = async (file: File): Promise<string> => {
 
 export const analyzePdf = async (file: File): Promise<AIAnalysisResult> => {
   try {
-    // Ensure we don't crash if process is somehow not defined despite polyfill
     const apiKey = typeof process !== 'undefined' ? process.env.API_KEY : undefined;
 
     if (!apiKey) {
@@ -35,7 +35,7 @@ export const analyzePdf = async (file: File): Promise<AIAnalysisResult> => {
     const base64Data = await fileToGenerativePart(file);
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3-flash-preview",
       contents: {
         parts: [
           {
@@ -45,7 +45,7 @@ export const analyzePdf = async (file: File): Promise<AIAnalysisResult> => {
             }
           },
           {
-            text: "Analiza este documento PDF. Genera un título atractivo, una descripción corta (máximo 2 párrafos) y una categoría adecuada. Responde en JSON."
+            text: "Analiza este documento PDF. Genera un título atractivo para una revista, una descripción corta optimizada para SEO (máximo 2 párrafos) y una categoría adecuada. Responde estrictamente en JSON."
           }
         ]
       },
@@ -71,7 +71,6 @@ export const analyzePdf = async (file: File): Promise<AIAnalysisResult> => {
 
   } catch (error) {
     console.error("Error analyzing PDF:", error);
-    // Fallback if AI fails
     return {
       title: file.name.replace('.pdf', ''),
       description: "",

@@ -1,9 +1,28 @@
+
 <!DOCTYPE html>
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>REVISTAPDF.COM</title>
+    <title>REVISTAPDF.COM - Convierte tu PDF en Revista Digital</title>
+    
+    <!-- SEO Baseline -->
+    <meta name="description" content="Plataforma para convertir documentos PDF en Flipbook o formato revista online con efecto al pasar página y análisis de IA." />
+    <meta name="keywords" content="pdf, flipbook, revista digital, digital magazine, convertir pdf, visualizador pdf" />
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://revistapdf.com/" />
+    <meta property="og:title" content="REVISTAPDF.COM - Revistas Digitales Inteligentes" />
+    <meta property="og:description" content="Sube tu PDF y conviértelo en una experiencia de lectura profesional con un solo clic." />
+    <meta property="og:image" content="https://revistapdf.com/og-image.jpg" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="REVISTAPDF.COM - Revistas Digitales Inteligentes" />
+    <meta name="twitter:description" content="Sube tu PDF y conviértelo en una experiencia de lectura profesional con un solo clic." />
+    <meta name="twitter:image" content="https://revistapdf.com/og-image.jpg" />
+
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%230ea5e9' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z'/><path d='M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z'/></svg>">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -46,100 +65,50 @@
     <style>
       body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: white; }
       
-      /* --- CAPAS DEL PDF --- */
-      
-      /* 1. Canvas (Imagen) */
-      canvas {
-        display: block;
-        z-index: 10;
-      }
-
-      /* 2. Text Layer (Selección) */
+      canvas { display: block; z-index: 10; }
       .textLayer {
         position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
+        top: 0; left: 0; right: 0; bottom: 0;
         overflow: hidden;
-        opacity: 1; /* Necesario para que el texto sea seleccionable */
+        opacity: 1;
         line-height: 1.0;
         z-index: 20;
-        pointer-events: none; /* Deja pasar eventos al flipbook donde no hay texto */
+        pointer-events: none;
       }
-      
       .textLayer > span {
         color: transparent;
         position: absolute;
         white-space: pre;
         cursor: text;
         transform-origin: 0% 0%;
-        pointer-events: auto; /* Re-habilitar solo para el texto real */
+        pointer-events: auto;
       }
-
-      /* Highlight color for selection */
-      ::selection {
-        background: rgba(14, 165, 233, 0.4) !important;
-        color: transparent !important;
-      }
-
-      /* 3. Annotation Layer (Enlaces y Botones): CRITICAL Z-INDEX */
+      ::selection { background: rgba(14, 165, 233, 0.4) !important; color: transparent !important; }
       .annotationLayer {
         position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
+        top: 0; left: 0; right: 0; bottom: 0;
         z-index: 100 !important; 
-        pointer-events: none; /* Permite arrastrar el flipbook en áreas vacías */
+        pointer-events: none;
       }
-
-      /* Forzar interactividad en anotaciones */
-      .annotationLayer section,
-      .annotationLayer .linkAnnotation,
-      .annotationLayer .buttonWidgetAnnotation,
-      .annotationLayer .popupAnnotation,
-      .annotationLayer a,
-      .annotationLayer area {
+      .annotationLayer section, .annotationLayer .linkAnnotation, .annotationLayer .buttonWidgetAnnotation, .annotationLayer .popupAnnotation, .annotationLayer a, .annotationLayer area {
         pointer-events: auto !important;
         cursor: pointer !important;
         display: block !important;
         z-index: 110 !important;
       }
-
-      /* Estilo visual para enlaces al pasar el ratón */
-      .annotationLayer .linkAnnotation > a:hover,
-      .annotationLayer .buttonWidgetAnnotation:hover {
+      .annotationLayer .linkAnnotation > a:hover, .annotationLayer .buttonWidgetAnnotation:hover {
         background-color: rgba(14, 165, 233, 0.2) !important;
         box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.4) !important;
         border-radius: 2px;
         transition: all 0.1s ease;
       }
-
-      /* Asegurar que los botones internos de PDF.js sean clicables */
       .annotationLayer .linkAnnotation > a {
-        width: 100% !important;
-        height: 100% !important;
-        position: absolute !important;
-        top: 0 !important;
-        left: 0 !important;
+        width: 100% !important; height: 100% !important;
+        position: absolute !important; top: 0 !important; left: 0 !important;
       }
-      
-      /* Flipbook Shadows Fix */
-      .stf__wrapper {
-        box-shadow: 0 20px 50px rgba(0,0,0,0.5);
-      }
-      
-      .stf__block {
-        pointer-events: auto !important;
-      }
-
-      /* Prevenir que el sombreado interno del flipbook bloquee los clics */
-      .stf__shadow {
-        pointer-events: none !important;
-      }
-
-      /* Ocultar scrollbars personalizadas */
+      .stf__wrapper { box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
+      .stf__block { pointer-events: auto !important; }
+      .stf__shadow { pointer-events: none !important; }
       .custom-scrollbar::-webkit-scrollbar { width: 6px; }
       .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
       .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 10px; }
