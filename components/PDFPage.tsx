@@ -38,16 +38,19 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
         const page = await pdfDoc.getPage(pageNum);
         if (!mounted) return;
 
+        // --- Cálculo de escalas ---
         const unscaledViewport = page.getViewport({ scale: 1 });
         const scaleX = width / unscaledViewport.width;
         const scaleY = height / unscaledViewport.height;
         const scale = Math.min(scaleX, scaleY);
         const dpr = window.devicePixelRatio || 1;
         
+        // Viewport para el Canvas (Alta resolución)
         const viewport = page.getViewport({ scale: scale * dpr });
+        // Viewport para las capas CSS (Escala 1:1 con el contenedor)
         const cssViewport = page.getViewport({ scale: scale });
 
-        // --- 1. Render Canvas ---
+        // --- 1. Renderizar Canvas ---
         const canvas = canvasRef.current;
         if (canvas) {
           canvas.width = viewport.width;
@@ -58,7 +61,12 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
           const context = canvas.getContext('2d', { alpha: false });
           if (context) {
             if (renderTaskRef.current) renderTaskRef.current.cancel();
-            const task = page.render({ canvasContext: context, viewport: viewport });
+            
+            const task = page.render({ 
+                canvasContext: context, 
+                viewport: viewport,
+                transform: [dpr, 0, 0, dpr, 0, 0] // Aplicar DPR correctamente
+            });
             renderTaskRef.current = task;
             await task.promise;
           }
@@ -70,35 +78,46 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
 
         const pdfjs = (window as any).pdfjsLib;
 
-        // --- 2. Render Text Layer (Opcional, pero bueno para accesibilidad) ---
+        // Posicionar capas para que coincidan exactamente con el canvas centrado
+        const leftOffset = (width - cssViewport.width) / 2;
+        const topOffset = (height - cssViewport.height) / 2;
+
+        // --- 2. Capa de Texto (Seleccionable) ---
         if (textLayerRef.current) {
            const textDiv = textLayerRef.current;
            textDiv.innerHTML = '';
            textDiv.style.width = `${cssViewport.width}px`;
            textDiv.style.height = `${cssViewport.height}px`;
+           textDiv.style.left = `${leftOffset}px`;
+           textDiv.style.top = `${topOffset}px`;
+           textDiv.style.setProperty('--scale-factor', `${scale}`);
            
-           const textContent = await page.getTextContent();
-           await pdfjs.renderTextLayer({
-             textContentSource: textContent,
-             container: textDiv,
-             viewport: cssViewport,
-             textDivs: []
-           }).promise;
+           try {
+             const textContent = await page.getTextContent();
+             await pdfjs.renderTextLayer({
+               textContentSource: textContent,
+               container: textDiv,
+               viewport: cssViewport,
+               textDivs: []
+             }).promise;
+           } catch (e) { console.warn("Error rendering text layer", e); }
         }
 
-        // --- 3. Render Annotation Layer (LINKS FIX) ---
+        // --- 3. Capa de Anotaciones (Enlaces funcionales) ---
         if (annotationLayerRef.current) {
             const annotationDiv = annotationLayerRef.current;
             annotationDiv.innerHTML = '';
             annotationDiv.style.width = `${cssViewport.width}px`;
             annotationDiv.style.height = `${cssViewport.height}px`;
+            annotationDiv.style.left = `${leftOffset}px`;
+            annotationDiv.style.top = `${topOffset}px`;
 
             const annotations = await page.getAnnotations();
             if (mounted && annotations.length > 0) {
                 
-                // Mock LinkService para PDF.js
+                // LinkService personalizado para gestionar clicks internos y externos
                 const linkService = {
-                    externalLinkTarget: 2, 
+                    externalLinkTarget: 2, // _blank
                     externalLinkRel: 'noopener noreferrer',
                     getDestinationHash: (dest: any) => JSON.stringify(dest),
                     getAnchorUrl: () => '#',
@@ -111,12 +130,12 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
                          try {
                              let index = -1;
                              if (typeof dest === 'string') {
-                                 // Resolver destino por nombre si es necesario
+                                 // Buscar por nombre de destino si es necesario
                              } else if (Array.isArray(dest)) {
                                  index = await pdfDoc.getPageIndex(dest[0]);
                              }
                              if (index !== -1) onPageJump(index);
-                         } catch (e) { console.warn(e); }
+                         } catch (e) { console.warn("Internal link error", e); }
                     }
                 };
 
@@ -137,41 +156,31 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
                          downloadManager: null
                      });
 
-                     // --- FIX: INTERCEPCIÓN AGRESIVA DE EVENTOS ---
-                     // Buscamos todos los elementos interactivos generados por PDF.js
-                     const links = annotationDiv.querySelectorAll('.linkAnnotation, a, section');
-                     
-                     links.forEach((el) => {
+                     // --- CRÍTICO: Detener la propagación para que PageFlip no "robe" el clic ---
+                     const elements = annotationDiv.querySelectorAll('.linkAnnotation, a, section');
+                     elements.forEach((el) => {
                          const element = el as HTMLElement;
                          element.style.pointerEvents = 'auto';
-                         element.style.cursor = 'pointer';
 
-                         const handleInteractiveEvent = (e: Event) => {
-                             // Detenemos la propagación para que PageFlip no se entere del evento
+                         const handleEvent = (e: Event) => {
+                             // Si clicamos aquí, PageFlip NO debe recibir el evento
                              e.stopPropagation();
-                             // En algunos casos, stopImmediatePropagation es necesario si PageFlip usa listeners globales
-                             e.stopImmediatePropagation();
+                             // e.stopImmediatePropagation(); // Opcional si PageFlip usa listeners globales
                          };
 
-                         // Registramos TODOS los tipos de inicio de interacción en fase de CAPTURA
-                         element.addEventListener('mousedown', handleInteractiveEvent, { capture: true });
+                         // Registramos en fase de CAPTURA para adelantarnos a PageFlip
+                         element.addEventListener('mousedown', handleEvent, { capture: true });
+                         element.addEventListener('touchstart', handleEvent, { capture: true });
+                         element.addEventListener('pointerdown', handleEvent, { capture: true });
                          element.addEventListener('click', (e) => {
-                             handleInteractiveEvent(e);
-                             
-                             // Si es un enlace <a> con href, forzamos la apertura manual
-                             const anchor = element.tagName === 'A' ? (element as HTMLAnchorElement) : element.querySelector('a');
-                             if (anchor && anchor.href && (anchor.href.startsWith('http') || anchor.href.startsWith('mailto'))) {
+                             handleEvent(e);
+                             // Si es un link externo, forzar apertura manual por seguridad
+                             const link = element.tagName === 'A' ? (element as HTMLAnchorElement) : element.querySelector('a');
+                             if (link && link.href && link.href.startsWith('http')) {
                                  e.preventDefault();
-                                 window.open(anchor.href, anchor.target || '_blank', 'noopener,noreferrer');
+                                 window.open(link.href, '_blank', 'noopener,noreferrer');
                              }
                          }, { capture: true });
-
-                         element.addEventListener('touchstart', (e) => {
-                             // Para móviles es crítico detenerlo antes de que empiece el gesto de "drag"
-                             handleInteractiveEvent(e);
-                         }, { capture: true, passive: false });
-
-                         element.addEventListener('pointerdown', handleInteractiveEvent, { capture: true });
                      });
                 }
             }
@@ -194,20 +203,25 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
   }, [pdfDoc, pageNum, width, height, priority, onPageJump]);
 
   return (
-    <div className="relative w-full h-full flex items-center justify-center overflow-hidden bg-white shadow-inner">
+    <div className="pdf-page-wrapper flex items-center justify-center">
       {isRendering && !rendered && (
-          <div className="absolute inset-0 flex items-center justify-center z-[150] bg-white">
+          <div className="absolute inset-0 flex items-center justify-center z-[160] bg-white">
               <Loader2 className="w-8 h-8 text-brand-500 animate-spin" />
           </div>
       )}
       
-      <canvas ref={canvasRef} className="block select-none relative z-10" />
+      {/* 1. Imagen del PDF */}
+      <canvas ref={canvasRef} className="select-none" />
+      
+      {/* 2. Capa de Selección de Texto */}
       <div ref={textLayerRef} className="textLayer" />
+      
+      {/* 3. Capa de Enlaces Interactivos */}
       <div ref={annotationLayerRef} className="annotationLayer" />
       
-      {/* Sombra de pliegue central */}
-      <div className="absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-black/[0.03] to-transparent pointer-events-none z-[40]" />
-      <div className="absolute inset-y-0 left-0 w-2 bg-gradient-to-r from-black/[0.02] to-transparent pointer-events-none z-[40]" />
+      {/* Sombra decorativa del lomo de la revista */}
+      <div className="absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-black/[0.04] to-transparent pointer-events-none z-40" />
+      <div className="absolute inset-y-0 left-0 w-2 bg-gradient-to-r from-black/[0.02] to-transparent pointer-events-none z-40" />
     </div>
   );
 });
