@@ -34,38 +34,30 @@
     
     <!-- PDF.js Core -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-    <!-- PDF.js Viewer (Required for AnnotationLayer & TextLayer Logic) -->
+    <!-- PDF.js Viewer -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf_viewer.min.js"></script>
     <!-- PDF.js Viewer CSS -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf_viewer.min.css">
     
     <script>
-      // Configure PDF.js worker
       pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     </script>
     <style>
-      body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: white; }
+      body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: white; margin: 0; padding: 0; }
       
-      /* --- CAPAS DEL PDF --- */
+      /* Capas PDF */
+      .pdf-page-container { position: relative; width: 100%; height: 100%; }
       
-      /* 1. Canvas (Imagen) */
-      canvas {
-        display: block;
-        z-index: 10;
-      }
+      canvas { display: block; z-index: 10; }
 
-      /* 2. Text Layer (Selección) */
       .textLayer {
         position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
+        top: 0; left: 0; right: 0; bottom: 0;
         overflow: hidden;
-        opacity: 0.2; /* Sutil para no estorbar visualmente pero permitir selección */
+        opacity: 0.1;
         line-height: 1.0;
         z-index: 20;
-        pointer-events: none; /* Dejar pasar eventos a la capa de anotaciones */
+        pointer-events: none;
       }
       
       .textLayer > span {
@@ -74,70 +66,39 @@
         white-space: pre;
         cursor: text;
         transform-origin: 0% 0%;
-        pointer-events: auto; /* Re-habilitar solo para el texto */
+        pointer-events: auto;
       }
 
-      /* Highlight color for selection */
-      ::selection {
-        background: rgba(14, 165, 233, 0.3);
-        color: transparent;
-      }
-
-      /* 3. Annotation Layer (Enlaces y Botones): CRITICAL Z-INDEX */
+      /* CAPA DE ANOTACIONES - CRÍTICA */
       .annotationLayer {
         position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        z-index: 100 !important; 
-        pointer-events: none; /* Importante: áreas vacías dejan pasar el drag del flipbook */
+        top: 0; left: 0; right: 0; bottom: 0;
+        z-index: 100 !important;
+        pointer-events: none; /* Dejar pasar a las zonas vacías */
       }
 
-      /* Forzar interactividad en anotaciones */
+      /* Forzar que los enlaces sean detectables y tengan el cursor correcto */
       .annotationLayer section,
       .annotationLayer .linkAnnotation,
-      .annotationLayer .buttonWidgetAnnotation,
-      .annotationLayer .popupAnnotation,
-      .annotationLayer a,
-      .annotationLayer area {
+      .annotationLayer a {
         pointer-events: auto !important;
         cursor: pointer !important;
-        display: block !important;
         z-index: 110 !important;
       }
 
-      /* Estilo visual para enlaces al pasar el ratón */
-      .annotationLayer .linkAnnotation > a:hover,
-      .annotationLayer .buttonWidgetAnnotation:hover {
-        background-color: rgba(14, 165, 233, 0.15) !important;
-        box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.4) !important;
+      .annotationLayer .linkAnnotation > a:hover {
+        background-color: rgba(14, 165, 233, 0.1) !important;
+        box-shadow: 0 0 4px rgba(14, 165, 233, 0.5) !important;
         border-radius: 2px;
-        transition: all 0.1s ease;
       }
 
-      /* Asegurar que los botones internos de PDF.js sean clicables */
-      .annotationLayer .linkAnnotation > a {
-        width: 100% !important;
-        height: 100% !important;
-        position: absolute !important;
-        top: 0 !important;
-        left: 0 !important;
-      }
+      /* Fixes para react-pageflip */
+      .stf__parent { z-index: 1 !important; }
+      .stf__block { pointer-events: auto !important; }
+      .stf__shadow { pointer-events: none !important; }
       
-      /* Flipbook Shadows Fix */
-      .stf__wrapper {
-        box-shadow: 0 20px 50px rgba(0,0,0,0.5);
-      }
-      
-      .stf__block {
-        pointer-events: auto !important;
-      }
-
-      /* Prevenir que el sombreado interno del flipbook bloquee los clics */
-      .stf__shadow {
-        pointer-events: none !important;
-      }
+      /* Eliminar selección de texto molesta durante el paso de página */
+      .stf__item { user-select: none; }
     </style>
   <script type="importmap">
 {
