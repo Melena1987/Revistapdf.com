@@ -1,12 +1,13 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut, Loader2, AlertCircle, Sparkles } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut, Loader2, AlertCircle, Sparkles, Download, Share2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import HTMLFlipBook from 'react-pageflip';
 import { getPdfDocument } from '../services/pdf';
 import { Magazine } from '../types';
 import { PDFPage } from './PDFPage';
 import { useAuth } from '../store/auth-context';
+import ShareModal from './ShareModal';
 
 // Wrapper component required by react-pageflip (Must use forwardRef)
 const Page = React.forwardRef<HTMLDivElement, any>((props, ref) => {
@@ -23,6 +24,11 @@ const Page = React.forwardRef<HTMLDivElement, any>((props, ref) => {
     );
 });
 
+interface FlipbookViewerProps {
+  magazine: Magazine;
+  onClose: () => void;
+}
+
 const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) => {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -35,6 +41,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
   const [currentPageIndex, setCurrentPageIndex] = useState(0); // 0-based index
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   
   // Dimensions for the flipbook
   const [bookDimensions, setBookDimensions] = useState({ width: 0, height: 0 });
@@ -164,6 +171,17 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
       }
   };
 
+  const handleDownload = () => {
+      // Trigger download using the PDF URL
+      const link = document.createElement('a');
+      link.href = magazine.pdfUrl;
+      link.target = '_blank';
+      link.download = `${magazine.title}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+  };
+
   useEffect(() => {
       const handleKey = (e: KeyboardEvent) => {
           if (e.key === 'ArrowRight') onNext();
@@ -231,24 +249,43 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
       
       {/* Header */}
       <div className="h-16 border-b border-white/10 flex items-center justify-between px-4 bg-dark-800 shrink-0 shadow-md z-50">
-        <div className="flex items-center gap-4">
-            <h1 className="text-white font-medium truncate max-w-[150px] sm:max-w-md text-sm sm:text-base">{magazine.title}</h1>
+        <div className="flex items-center gap-4 min-w-0">
+            <h1 className="text-white font-medium truncate max-w-[120px] sm:max-w-md text-sm sm:text-base">{magazine.title}</h1>
         </div>
         
-        <div className="flex items-center gap-2 sm:gap-4">
+        <div className="flex items-center gap-1.5 sm:gap-4">
              {!user && (
                 <button 
                     onClick={() => navigate('/login')}
-                    className="hidden sm:flex items-center gap-2 px-4 py-1.5 bg-gradient-to-r from-brand-600 to-blue-600 hover:from-brand-500 hover:to-blue-500 text-white text-xs sm:text-sm font-medium rounded-full shadow-lg transition-transform hover:scale-105 mr-2"
+                    className="hidden lg:flex items-center gap-2 px-4 py-1.5 bg-gradient-to-r from-brand-600 to-blue-600 hover:from-brand-500 hover:to-blue-500 text-white text-xs sm:text-sm font-medium rounded-full shadow-lg transition-transform hover:scale-105 mr-2"
                 >
                     <Sparkles className="w-3 h-3 sm:w-4 sm:h-4 text-yellow-300" />
                     <span>Crea tu revista</span>
                 </button>
             )}
 
+            <div className="flex items-center gap-1">
+                <button 
+                    onClick={handleDownload}
+                    className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-colors hidden sm:block" 
+                    title="Descargar PDF"
+                >
+                    <Download className="w-4 h-4 sm:w-5 sm:h-5" />
+                </button>
+                <button 
+                    onClick={() => setIsShareModalOpen(true)}
+                    className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-colors" 
+                    title="Compartir"
+                >
+                    <Share2 className="w-4 h-4 sm:w-5 sm:h-5" />
+                </button>
+            </div>
+
+            <div className="w-px h-6 bg-white/10 mx-1 hidden sm:block"></div>
+
             <div className="flex items-center bg-dark-900/50 rounded-lg p-1 border border-white/5">
                 <button onClick={() => updateZoom(zoom - 0.5)} className="p-1.5 text-gray-400 hover:text-white"><ZoomOut className="w-4 h-4"/></button>
-                <span className="text-xs text-gray-500 w-10 text-center">{Math.round(zoom * 100)}%</span>
+                <span className="text-[10px] sm:text-xs text-gray-500 w-8 sm:w-10 text-center">{Math.round(zoom * 100)}%</span>
                 <button onClick={() => updateZoom(zoom + 0.5)} className="p-1.5 text-gray-400 hover:text-white"><ZoomIn className="w-4 h-4"/></button>
             </div>
 
@@ -346,12 +383,15 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
             </>
         )}
       </div>
+
+      {isShareModalOpen && (
+          <ShareModal 
+            magazine={magazine} 
+            onClose={() => setIsShareModalOpen(false)} 
+          />
+      )}
     </div>
   );
 };
 
 export default FlipbookViewer;
-interface FlipbookViewerProps {
-  magazine: Magazine;
-  onClose: () => void;
-}
