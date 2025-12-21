@@ -1,7 +1,6 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut, Loader2, AlertCircle, Sparkles, Download, Share2, Maximize2 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut, Loader2, AlertCircle, Download, Share2, Maximize2 } from 'lucide-react';
 import HTMLFlipBook from 'react-pageflip';
 import { getPdfDocument } from '../services/pdf';
 import { Magazine } from '../types';
@@ -29,7 +28,6 @@ interface FlipbookViewerProps {
 
 const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) => {
   const { user } = useAuth();
-  const navigate = useNavigate();
   
   const [pdfDoc, setPdfDoc] = useState<any>(null);
   const [totalPages, setTotalPages] = useState(0);
@@ -40,7 +38,6 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-  const [uiVisible, setUiVisible] = useState(true);
   
   const [bookDimensions, setBookDimensions] = useState({ width: 0, height: 0 });
   const [pdfAspectRatio, setPdfAspectRatio] = useState(0.7071);
@@ -48,28 +45,10 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
 
   const containerRef = useRef<HTMLDivElement>(null);
   const bookRef = useRef<any>(null);
-  const uiTimeoutRef = useRef<number | null>(null);
 
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
   const panStartRef = useRef({ x: 0, y: 0 });
-
-  const initialPinchDistanceRef = useRef<number | null>(null);
-  const initialZoomRef = useRef<number>(1);
-
-  // Auto-hide UI logic
-  const resetUiTimeout = useCallback(() => {
-    setUiVisible(true);
-    if (uiTimeoutRef.current) window.clearTimeout(uiTimeoutRef.current);
-    uiTimeoutRef.current = window.setTimeout(() => {
-      if (zoom === 1) setUiVisible(false);
-    }, 4000);
-  }, [zoom]);
-
-  useEffect(() => {
-    resetUiTimeout();
-    return () => { if (uiTimeoutRef.current) window.clearTimeout(uiTimeoutRef.current); };
-  }, [resetUiTimeout]);
 
   useEffect(() => {
     const loadPdf = async () => {
@@ -93,29 +72,35 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
   useEffect(() => {
     const handleResize = () => {
         if (!containerRef.current) return;
-        const mobile = window.innerWidth < 768 || window.innerHeight < 500;
+        
+        const mobile = window.innerWidth < 768;
         setIsMobileMode(mobile);
+        
         const maxWidth = window.innerWidth;
-        const maxHeight = window.innerHeight - (mobile ? 60 : 80);
+        // Altura disponible: Total - Header (56px) - Footer (80px en movil, 64px en pc)
+        const footerHeight = mobile ? 80 : 64;
+        const headerHeight = 56;
+        const maxHeight = window.innerHeight - headerHeight - footerHeight - 40; // 40px padding extra
         
         let pageW, pageH;
         if (mobile) {
-            pageW = maxWidth - 30;
+            pageW = maxWidth - 32;
             pageH = pageW / pdfAspectRatio;
-            if (pageH > maxHeight - 100) {
-                pageH = maxHeight - 100;
+            if (pageH > maxHeight) {
+                pageH = maxHeight;
                 pageW = pageH * pdfAspectRatio;
             }
         } else {
             pageW = (maxWidth - 120) / 2;
             pageH = pageW / pdfAspectRatio;
-            if (pageH > maxHeight - 60) {
-                pageH = maxHeight - 60;
+            if (pageH > maxHeight) {
+                pageH = maxHeight;
                 pageW = pageH * pdfAspectRatio;
             }
         }
         setBookDimensions({ width: Math.floor(pageW), height: Math.floor(pageH) });
     };
+    
     handleResize();
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
@@ -123,22 +108,15 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
 
   const handleFlip = useCallback((e: any) => {
     setCurrentPageIndex(e.data);
-    resetUiTimeout();
-  }, [resetUiTimeout]);
+  }, []);
 
   const updateZoom = (val: number) => {
       const newZoom = Math.min(Math.max(1, val), 4);
       setZoom(newZoom);
-      if (newZoom === 1) {
-          setPan({ x: 0, y: 0 });
-          resetUiTimeout();
-      } else {
-          setUiVisible(true);
-      }
+      if (newZoom === 1) setPan({ x: 0, y: 0 });
   };
 
   const handleShare = async () => {
-    resetUiTimeout();
     const identifier = magazine.slug || magazine.id;
     const shareUrl = `${window.location.origin}${window.location.pathname.replace('index.html', '')}#/view/${identifier}`;
     
@@ -158,7 +136,6 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
   };
 
   const handleDownload = () => {
-      resetUiTimeout();
       const link = document.createElement('a');
       link.href = magazine.pdfUrl;
       link.target = '_blank';
@@ -168,9 +145,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
       document.body.removeChild(link);
   };
 
-  // Interactions
   const handleStart = (clientX: number, clientY: number) => {
-    resetUiTimeout();
     if (zoom > 1) {
         setIsDragging(true);
         dragStartRef.current = { x: clientX, y: clientY };
@@ -187,44 +162,41 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#1a1c1e] flex flex-col h-screen overflow-hidden select-none">
+    <div className="fixed inset-0 z-50 bg-[#0d0e10] flex flex-col h-[100dvh] overflow-hidden select-none">
       
-      {/* Dynamic Header */}
-      <div className={`absolute top-0 inset-x-0 h-14 sm:h-16 flex items-center justify-between px-4 z-50 transition-all duration-500 transform ${uiVisible ? 'translate-y-0 opacity-100' : '-translate-y-full opacity-0'} bg-gradient-to-b from-black/80 to-transparent`}>
-        <div className="flex-1 min-w-0 sm:flex-none">
-            <h1 className="text-white font-semibold truncate text-sm sm:text-base max-w-[200px] sm:max-w-md">
+      {/* HEADER FIJO */}
+      <header className="h-14 shrink-0 flex items-center justify-between px-4 bg-black/40 border-b border-white/5 backdrop-blur-md z-[60]">
+        <div className="flex-1 min-w-0">
+            <h1 className="text-white font-medium truncate text-sm">
                 {magazine.title}
             </h1>
         </div>
 
-        {/* Center - Mobile Status (Page X of Y) */}
-        <div className="hidden sm:block absolute left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-md px-3 py-1 rounded-full border border-white/10">
-            <span className="text-xs text-white/80 font-medium">Página {currentPageIndex + 1} de {totalPages}</span>
-        </div>
-        
-        <div className="flex items-center gap-2">
-            {!isMobileMode && (
-                <button onClick={handleDownload} className="p-2 text-white/70 hover:text-white transition-colors" title="Descargar">
-                    <Download className="w-5 h-5" />
-                </button>
-            )}
-            <button onClick={onClose} className="p-2 text-white/70 hover:text-white transition-colors bg-white/5 rounded-full backdrop-blur-sm">
+        <div className="flex items-center gap-1 sm:gap-3">
+            <div className="bg-white/10 px-2 py-0.5 rounded text-[10px] text-white/70 font-bold uppercase mr-2">
+                Pág {currentPageIndex + 1} / {totalPages}
+            </div>
+            <button onClick={onClose} className="p-2 text-white/50 hover:text-white bg-white/5 rounded-full">
                 <X className="w-5 h-5" />
             </button>
         </div>
-      </div>
+      </header>
 
-      {/* Main Viewer */}
-      <div 
+      {/* ÁREA CENTRAL DE LECTURA */}
+      <main 
         ref={containerRef}
         className="flex-1 relative flex items-center justify-center overflow-hidden touch-none"
-        onClick={() => !isDragging && resetUiTimeout()}
         onMouseDown={(e) => handleStart(e.clientX, e.clientY)}
         onMouseMove={(e) => handleMove(e.clientX, e.clientY)}
         onMouseUp={() => setIsDragging(false)}
         style={{ cursor: zoom > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
       >
-        {loading && <div className="flex flex-col items-center gap-4"><Loader2 className="w-12 h-12 text-brand-500 animate-spin" /><span className="text-white/50 text-sm animate-pulse uppercase tracking-widest">Iniciando motor de lectura</span></div>}
+        {loading && (
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="w-8 h-8 text-brand-500 animate-spin" />
+            <span className="text-[10px] text-white/20 tracking-[0.2em] uppercase font-bold">Cargando...</span>
+          </div>
+        )}
         
         {!loading && !error && (
             <div 
@@ -238,7 +210,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
                     showCover={true}
                     onFlip={handleFlip}
                     ref={bookRef}
-                    className="shadow-[0_20px_60px_rgba(0,0,0,0.8)]"
+                    className="shadow-[0_40px_100px_rgba(0,0,0,1)]"
                     usePortrait={isMobileMode}
                     drawShadow={true}
                     flippingTime={800}
@@ -261,58 +233,59 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
             </div>
         )}
 
-        {/* Desktop Navigation */}
+        {/* Flechas Navegación PC */}
         {!isMobileMode && zoom === 1 && !loading && (
             <>
-                <button onClick={() => bookRef.current.pageFlip().flipPrev()} className="absolute left-6 top-1/2 -translate-y-1/2 p-4 rounded-full bg-white/5 hover:bg-white/10 text-white/40 hover:text-white transition-all backdrop-blur-md group">
-                    <ChevronLeft className="w-8 h-8 group-active:scale-90 transition-transform" />
+                <button onClick={() => bookRef.current.pageFlip().flipPrev()} className="absolute left-6 p-4 rounded-full bg-black/40 text-white/50 hover:text-white backdrop-blur-md transition-all">
+                    <ChevronLeft className="w-8 h-8" />
                 </button>
-                <button onClick={() => bookRef.current.pageFlip().flipNext()} className="absolute right-6 top-1/2 -translate-y-1/2 p-4 rounded-full bg-white/5 hover:bg-white/10 text-white/40 hover:text-white transition-all backdrop-blur-md group">
-                    <ChevronRight className="w-8 h-8 group-active:scale-90 transition-transform" />
+                <button onClick={() => bookRef.current.pageFlip().flipNext()} className="absolute right-6 p-4 rounded-full bg-black/40 text-white/50 hover:text-white backdrop-blur-md transition-all">
+                    <ChevronRight className="w-8 h-8" />
                 </button>
             </>
         )}
+      </main>
+
+      {/* LÍNEA DE PROGRESO */}
+      <div className="h-1 bg-white/5 w-full relative shrink-0">
+          <div 
+            className="absolute top-0 left-0 h-full bg-brand-500 transition-all duration-500 shadow-[0_0_15px_rgba(14,165,233,0.8)]" 
+            style={{ width: `${((currentPageIndex + (isMobileMode ? 1 : 2)) / totalPages) * 100}%` }}
+          />
       </div>
 
-      {/* Mobile SMART ACTION DOCK (Floating) */}
-      <div className={`absolute bottom-6 inset-x-0 flex justify-center z-50 transition-all duration-500 ${uiVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`}>
-          <div className="flex items-center gap-1 p-1.5 bg-black/60 backdrop-blur-xl border border-white/10 rounded-full shadow-2xl">
-              
-              {/* Zoom Switcher */}
-              <button 
-                onClick={() => updateZoom(zoom === 1 ? 2 : 1)}
-                className={`p-3 rounded-full transition-all ${zoom > 1 ? 'bg-brand-500 text-white' : 'text-white/60 hover:text-white'}`}
-              >
-                  {zoom > 1 ? <Maximize2 className="w-5 h-5" /> : <ZoomIn className="w-5 h-5" />}
-              </button>
+      {/* BARRA DE ACCIÓN INFERIOR FIJA (ESTILO APP) */}
+      <nav className="h-16 sm:h-16 shrink-0 bg-black/80 border-t border-white/10 flex items-center justify-around px-4 pb-[env(safe-area-inset-bottom)] z-[60] backdrop-blur-xl">
+          
+          {/* Zoom Control */}
+          <button 
+            onClick={() => updateZoom(zoom === 1 ? 2 : 1)}
+            className={`p-3 rounded-xl flex flex-col items-center gap-1 transition-all ${zoom > 1 ? 'text-brand-400' : 'text-white/40 hover:text-white'}`}
+          >
+              {zoom > 1 ? <Maximize2 className="w-5 h-5" /> : <ZoomIn className="w-5 h-5" />}
+              <span className="text-[8px] font-bold uppercase tracking-widest">{zoom > 1 ? '1x' : 'Zoom'}</span>
+          </button>
 
-              <div className="w-px h-6 bg-white/10 mx-1"></div>
+          {/* ACCIÓN PRINCIPAL: COMPARTIR */}
+          <button 
+            onClick={handleShare}
+            className="flex items-center gap-3 px-8 py-3 bg-gradient-to-r from-brand-600 to-blue-600 text-white rounded-full shadow-lg shadow-brand-900/40 active:scale-95 transition-transform"
+          >
+              <Share2 className="w-5 h-5" />
+              <span className="text-xs font-black uppercase tracking-widest">
+                  Compartir vía...
+              </span>
+          </button>
 
-              {/* Central Primary Action: Share */}
-              <button 
-                onClick={handleShare}
-                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-brand-600 to-blue-600 hover:from-brand-500 hover:to-blue-500 text-white rounded-full shadow-lg active:scale-95 transition-all"
-              >
-                  <Share2 className="w-4 h-4" />
-                  <span className="text-xs font-bold uppercase tracking-wider">
-                      {isMobileMode ? 'Compartir vía...' : 'Compartir Revista'}
-                  </span>
-              </button>
-
-              <div className="w-px h-6 bg-white/10 mx-1"></div>
-
-              {/* Download (Hidden text on mobile) */}
-              <button 
-                onClick={handleDownload}
-                className="p-3 text-white/60 hover:text-white transition-all"
-              >
-                  <Download className="w-5 h-5" />
-              </button>
-          </div>
-      </div>
-
-      {/* Progress Line (Subtle) */}
-      <div className="absolute bottom-0 left-0 h-0.5 bg-brand-500 transition-all duration-300 z-50" style={{ width: `${((currentPageIndex + (isMobileMode ? 1 : 2)) / totalPages) * 100}%` }} />
+          {/* Descargar */}
+          <button 
+            onClick={handleDownload}
+            className="p-3 rounded-xl flex flex-col items-center gap-1 text-white/40 hover:text-white transition-all"
+          >
+              <Download className="w-5 h-5" />
+              <span className="text-[8px] font-bold uppercase tracking-widest">PDF</span>
+          </button>
+      </nav>
 
       {isShareModalOpen && (
           <ShareModal 
