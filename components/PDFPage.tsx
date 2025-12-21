@@ -127,7 +127,6 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
 
             try {
                 const annotations = await page.getAnnotations();
-                console.log(`Página ${pageNum} - Anotaciones cargadas:`, annotations.length);
 
                 if (mounted && annotations.length > 0) {
                     const linkService = {
@@ -154,6 +153,12 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
                              } catch (e) {
                                  console.warn("Error resolviendo destino interno", e);
                              }
+                        },
+                        // --- MÉTODO FALTANTE QUE CAUSABA EL ERROR ---
+                        addLinkAttributes: (link: any, url: string, newWindow: boolean) => {
+                            link.href = url;
+                            link.target = newWindow ? '_blank' : undefined;
+                            link.rel = 'noopener noreferrer';
                         }
                     };
 
@@ -181,7 +186,6 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
                          interactiveElements.forEach((el) => {
                              const element = el as HTMLElement;
                              
-                             // Forzar estilos inline para asegurar visibilidad y respuesta
                              element.style.pointerEvents = 'auto';
                              element.style.cursor = 'pointer';
                              element.style.display = 'block';
@@ -190,24 +194,19 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
                                  e.stopPropagation();
                              };
 
-                             // Detener mousedown/touchstart evita que react-pageflip detecte un arrastre
                              element.addEventListener('mousedown', stopPropagation, { capture: true });
                              element.addEventListener('touchstart', stopPropagation, { capture: true });
                              element.addEventListener('pointerdown', stopPropagation, { capture: true });
                              
-                             // Manejo manual de clics para enlaces
                              element.addEventListener('click', (e) => {
-                                 e.stopPropagation(); // No pasar al flipbook
+                                 e.stopPropagation(); 
 
                                  const link = element.tagName === 'A' ? (element as HTMLAnchorElement) : element.querySelector('a');
                                  
                                  if (link) {
                                      const href = link.href || link.getAttribute('href');
-                                     console.log('Enlace detectado y clickeado:', href);
-
                                      if (href && (href.startsWith('http') || href.startsWith('mailto:'))) {
                                          e.preventDefault();
-                                         console.log('Abriendo enlace externo manualmente:', href);
                                          window.open(href, '_blank', 'noopener,noreferrer');
                                      }
                                  }
