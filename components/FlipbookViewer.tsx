@@ -1,11 +1,10 @@
 
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut, Loader2, AlertCircle, Download, Share2, Maximize2 } from 'lucide-react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { ChevronLeft, ChevronRight, X, ZoomIn, Loader2, Share2, Maximize2, Download } from 'lucide-react';
 import HTMLFlipBook from 'react-pageflip';
 import { getPdfDocument } from '../services/pdf';
 import { Magazine } from '../types';
 import { PDFPage } from './PDFPage';
-import { useAuth } from '../store/auth-context';
 import ShareModal from './ShareModal';
 
 const Page = React.forwardRef<HTMLDivElement, any>((props, ref) => {
@@ -27,8 +26,6 @@ interface FlipbookViewerProps {
 }
 
 const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) => {
-  const { user } = useAuth();
-  
   const [pdfDoc, setPdfDoc] = useState<any>(null);
   const [totalPages, setTotalPages] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -40,13 +37,14 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   
   const [bookDimensions, setBookDimensions] = useState({ width: 0, height: 0 });
-  const [pdfAspectRatio, setPdfAspectRatio] = useState(0.7071); // Default A4
+  const [pdfAspectRatio, setPdfAspectRatio] = useState(0.7071); 
   const [isMobileMode, setIsMobileMode] = useState(window.innerWidth < 768);
   const [orientationKey, setOrientationKey] = useState(0);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const bookRef = useRef<any>(null);
 
+  // Dragging states (Mouse & Touch)
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
   const panStartRef = useRef({ x: 0, y: 0 });
@@ -72,42 +70,34 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
     loadPdf();
   }, [magazine.pdfUrl]);
 
-  // Lógica de redimensionamiento mejorada
   const handleResize = useCallback(() => {
-    if (!containerRef.current) return;
-    
     const winW = window.innerWidth;
     const winH = window.innerHeight;
     
-    // Decidir si usar modo "single page" (mobile) o "double page"
-    // Forzamos modo móvil si el ancho es menor a 768 o si la pantalla es vertical
+    // Decidir modo móvil: si el ancho es pequeño o si es vertical
     const mobile = winW < 768 || winH > winW;
     setIsMobileMode(mobile);
     
-    // Altura ocupada por UI: Header (56px) + Progress (4px) + Footer (64px) + Margen seguridad (32px)
-    const uiHeight = 56 + 4 + 64 + 32;
-    const availableWidth = winW - (mobile ? 32 : 64);
-    const availableHeight = winH - uiHeight;
+    // Área disponible restando UI (Header 56px + Footer 64px + Progreso 4px + Márgenes 32px)
+    const availableWidth = winW - (mobile ? 20 : 80);
+    const availableHeight = winH - (56 + 64 + 4 + 40);
     
     let pageW, pageH;
 
     if (mobile) {
-        // En móvil (una página), la página debe caber en el ancho disponible
+        // Una sola página
         pageW = availableWidth;
         pageH = pageW / pdfAspectRatio;
         
-        // Si la altura calculada excede la disponible, ajustamos por altura
         if (pageH > availableHeight) {
             pageH = availableHeight;
             pageW = pageH * pdfAspectRatio;
         }
     } else {
-        // En desktop (dos páginas), el "book" tiene el doble de ancho que una página
-        // Queremos que las DOS páginas quepan en availableWidth
+        // Dos páginas (Desktop)
         const maxBookWidth = availableWidth;
         const maxBookHeight = availableHeight;
         
-        // Calculamos dimensiones de UNA página
         pageW = maxBookWidth / 2;
         pageH = pageW / pdfAspectRatio;
         
@@ -117,23 +107,17 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
         }
     }
     
-    setBookDimensions({ 
-        width: Math.floor(pageW), 
-        height: Math.floor(pageH) 
-    });
-    
-    // Cambiamos la key para forzar re-montaje del flipbook si las dimensiones cambian drásticamente
+    setBookDimensions({ width: Math.floor(pageW), height: Math.floor(pageH) });
     setOrientationKey(prev => prev + 1);
+    // Reset zoom and pan on resize for safety
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
   }, [pdfAspectRatio]);
 
   useEffect(() => {
     handleResize();
     window.addEventListener('resize', handleResize);
-    window.addEventListener('orientationchange', handleResize);
-    return () => {
-        window.removeEventListener('resize', handleResize);
-        window.removeEventListener('orientationchange', handleResize);
-    };
+    return () => window.removeEventListener('resize', handleResize);
   }, [handleResize]);
 
   const handleFlip = useCallback((e: any) => {
@@ -146,35 +130,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
       if (newZoom === 1) setPan({ x: 0, y: 0 });
   };
 
-  const handleShare = async () => {
-    const identifier = magazine.slug || magazine.id;
-    const shareUrl = `${window.location.origin}${window.location.pathname.replace('index.html', '')}#/view/${identifier}`;
-    
-    if (navigator.share) {
-        try {
-            await navigator.share({
-                title: magazine.title,
-                text: `Lee "${magazine.title}" en formato revista digital`,
-                url: shareUrl,
-            });
-        } catch (err) {
-            if ((err as Error).name !== 'AbortError') setIsShareModalOpen(true);
-        }
-    } else {
-        setIsShareModalOpen(true);
-    }
-  };
-
-  const handleDownload = () => {
-      const link = document.createElement('a');
-      link.href = magazine.pdfUrl;
-      link.target = '_blank';
-      link.download = `${magazine.title}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-  };
-
+  // HANDLERS PARA ARRASTRE (MOUSE + TOUCH)
   const handleStart = (clientX: number, clientY: number) => {
     if (zoom > 1) {
         setIsDragging(true);
@@ -187,24 +143,50 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
     if (isDragging && zoom > 1) {
         const dx = clientX - dragStartRef.current.x;
         const dy = clientY - dragStartRef.current.y;
-        setPan({ x: panStartRef.current.x + dx, y: panStartRef.current.y + dy });
+        setPan({ 
+            x: panStartRef.current.x + dx, 
+            y: panStartRef.current.y + dy 
+        });
     }
+  };
+
+  const handleEnd = () => {
+    setIsDragging(false);
+  };
+
+  const handleShare = async () => {
+    const identifier = magazine.slug || magazine.id;
+    const shareUrl = `${window.location.origin}${window.location.pathname.replace('index.html', '')}#/view/${identifier}`;
+    if (navigator.share) {
+        try {
+            await navigator.share({ title: magazine.title, url: shareUrl });
+        } catch (err) {
+            if ((err as Error).name !== 'AbortError') setIsShareModalOpen(true);
+        }
+    } else {
+        setIsShareModalOpen(true);
+    }
+  };
+
+  const handleDownload = () => {
+      const link = document.createElement('a');
+      link.href = magazine.pdfUrl;
+      link.download = `${magazine.title}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
   };
 
   return (
     <div className="fixed inset-0 z-50 bg-[#0d0e10] flex flex-col h-[100dvh] overflow-hidden select-none">
-      
       {/* HEADER */}
       <header className="h-14 shrink-0 flex items-center justify-between px-4 bg-black/40 border-b border-white/5 backdrop-blur-md z-[60]">
         <div className="flex-1 min-w-0">
-            <h1 className="text-white font-medium truncate text-sm">
-                {magazine.title}
-            </h1>
+            <h1 className="text-white font-medium truncate text-sm">{magazine.title}</h1>
         </div>
-
-        <div className="flex items-center gap-1 sm:gap-3">
-            <div className="bg-white/10 px-2 py-0.5 rounded text-[10px] text-white/70 font-bold uppercase mr-2">
-                Pág {currentPageIndex + 1} / {totalPages}
+        <div className="flex items-center gap-3">
+            <div className="bg-white/10 px-2 py-0.5 rounded text-[10px] text-white/70 font-bold uppercase">
+                {currentPageIndex + 1} / {totalPages}
             </div>
             <button onClick={onClose} className="p-2 text-white/50 hover:text-white bg-white/5 rounded-full">
                 <X className="w-5 h-5" />
@@ -212,29 +194,36 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
         </div>
       </header>
 
-      {/* ÁREA CENTRAL */}
+      {/* ÁREA CENTRAL - CONTROL DE ARRASTRE AQUÍ */}
       <main 
         ref={containerRef}
-        className="flex-1 relative flex items-center justify-center overflow-hidden touch-none p-4"
+        className="flex-1 relative flex items-center justify-center overflow-hidden touch-none"
         onMouseDown={(e) => handleStart(e.clientX, e.clientY)}
         onMouseMove={(e) => handleMove(e.clientX, e.clientY)}
-        onMouseUp={() => setIsDragging(false)}
+        onMouseUp={handleEnd}
+        onMouseLeave={handleEnd}
+        onTouchStart={(e) => handleStart(e.touches[0].clientX, e.touches[0].clientY)}
+        onTouchMove={(e) => handleMove(e.touches[0].clientX, e.touches[0].clientY)}
+        onTouchEnd={handleEnd}
         style={{ cursor: zoom > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
       >
         {loading && (
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="w-8 h-8 text-brand-500 animate-spin" />
-            <span className="text-[10px] text-white/20 tracking-[0.2em] uppercase font-bold">Cargando...</span>
+            <span className="text-[10px] text-white/20 tracking-[0.2em] uppercase font-bold">Cargando PDF...</span>
           </div>
         )}
         
         {!loading && !error && bookDimensions.width > 0 && (
             <div 
-                className="transition-transform duration-200 ease-out"
-                style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
+                className="transition-transform duration-200 ease-out flex items-center justify-center"
+                style={{ 
+                    transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                    transformOrigin: 'center center'
+                }}
             >
                 <HTMLFlipBook
-                    key={orientationKey} // Forzar re-renderizado al cambiar orientación
+                    key={orientationKey}
                     width={bookDimensions.width}
                     height={bookDimensions.height}
                     size="fixed"
@@ -246,8 +235,8 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
                     startPage={currentPageIndex}
                     drawShadow={true}
                     flippingTime={800}
-                    swipeDistance={40}
-                    clickEventForward={zoom === 1}
+                    swipeDistance={zoom > 1 ? 0 : 40} // Desactiva swipe si hay zoom
+                    clickEventForward={zoom === 1}    // Desactiva clicks si hay zoom
                 >
                     {Array.from({ length: totalPages }).map((_, index) => (
                         <Page key={index} number={index + 1}>
@@ -265,18 +254,18 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
             </div>
         )}
 
-        {/* Flechas Navegación PC */}
+        {/* Botones Navegación PC */}
         {!isMobileMode && zoom === 1 && !loading && (
             <>
                 <button 
                   onClick={() => bookRef.current?.pageFlip().flipPrev()} 
-                  className="absolute left-6 p-4 rounded-full bg-black/40 text-white/50 hover:text-white backdrop-blur-md transition-all z-[70]"
+                  className="absolute left-6 p-4 rounded-full bg-black/40 text-white/50 hover:text-white backdrop-blur-md z-[70]"
                 >
                     <ChevronLeft className="w-8 h-8" />
                 </button>
                 <button 
                   onClick={() => bookRef.current?.pageFlip().flipNext()} 
-                  className="absolute right-6 p-4 rounded-full bg-black/40 text-white/50 hover:text-white backdrop-blur-md transition-all z-[70]"
+                  className="absolute right-6 p-4 rounded-full bg-black/40 text-white/50 hover:text-white backdrop-blur-md z-[70]"
                 >
                     <ChevronRight className="w-8 h-8" />
                 </button>
@@ -285,9 +274,9 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
       </main>
 
       {/* LÍNEA DE PROGRESO */}
-      <div className="h-1 bg-white/5 w-full relative shrink-0">
+      <div className="h-1 bg-white/5 w-full relative shrink-0 overflow-hidden">
           <div 
-            className="absolute top-0 left-0 h-full bg-brand-500 transition-all duration-500 shadow-[0_0_15px_rgba(14,165,233,0.8)]" 
+            className="absolute top-0 left-0 h-full bg-brand-500 transition-all duration-500" 
             style={{ width: `${((currentPageIndex + (isMobileMode ? 1 : 2)) / totalPages) * 100}%` }}
           />
       </div>
@@ -295,7 +284,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
       {/* BARRA DE ACCIÓN INFERIOR */}
       <nav className="h-16 shrink-0 bg-black/80 border-t border-white/10 flex items-center justify-around px-4 pb-[env(safe-area-inset-bottom)] z-[60] backdrop-blur-xl">
           <button 
-            onClick={() => updateZoom(zoom === 1 ? 2 : 1)}
+            onClick={() => updateZoom(zoom === 1 ? 2.5 : 1)}
             className={`p-3 rounded-xl flex flex-col items-center gap-1 transition-all ${zoom > 1 ? 'text-brand-400' : 'text-white/40 hover:text-white'}`}
           >
               {zoom > 1 ? <Maximize2 className="w-5 h-5" /> : <ZoomIn className="w-5 h-5" />}
@@ -304,7 +293,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
 
           <button 
             onClick={handleShare}
-            className="flex items-center justify-center p-4 bg-gradient-to-r from-brand-600 to-blue-600 text-white rounded-full shadow-lg shadow-brand-900/40 active:scale-95 transition-all hover:scale-105"
+            className="flex items-center justify-center p-4 bg-gradient-to-r from-brand-600 to-blue-600 text-white rounded-full shadow-lg active:scale-95 transition-all"
             title="Compartir"
           >
               <Share2 className="w-6 h-6" />
@@ -320,10 +309,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
       </nav>
 
       {isShareModalOpen && (
-          <ShareModal 
-            magazine={magazine} 
-            onClose={() => setIsShareModalOpen(false)} 
-          />
+          <ShareModal magazine={magazine} onClose={() => setIsShareModalOpen(false)} />
       )}
     </div>
   );
