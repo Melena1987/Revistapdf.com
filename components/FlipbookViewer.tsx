@@ -1,5 +1,5 @@
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut, Loader2, AlertCircle, Download, Share2, Maximize2 } from 'lucide-react';
 import HTMLFlipBook from 'react-pageflip';
 import { getPdfDocument } from '../services/pdf';
@@ -40,8 +40,9 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   
   const [bookDimensions, setBookDimensions] = useState({ width: 0, height: 0 });
-  const [pdfAspectRatio, setPdfAspectRatio] = useState(0.7071);
+  const [pdfAspectRatio, setPdfAspectRatio] = useState(0.7071); // Default A4
   const [isMobileMode, setIsMobileMode] = useState(window.innerWidth < 768);
+  const [orientationKey, setOrientationKey] = useState(0);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const bookRef = useRef<any>(null);
@@ -59,7 +60,9 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
         setTotalPages(doc.numPages);
         const page = await doc.getPage(1);
         const viewport = page.getViewport({ scale: 1 });
-        if (viewport.width && viewport.height) setPdfAspectRatio(viewport.width / viewport.height);
+        if (viewport.width && viewport.height) {
+            setPdfAspectRatio(viewport.width / viewport.height);
+        }
       } catch (err) {
         setError("No se pudo cargar el documento.");
       } finally {
@@ -69,42 +72,69 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
     loadPdf();
   }, [magazine.pdfUrl]);
 
-  useEffect(() => {
-    const handleResize = () => {
-        if (!containerRef.current) return;
-        
-        const mobile = window.innerWidth < 768;
-        setIsMobileMode(mobile);
-        
-        const maxWidth = window.innerWidth;
-        // Altura disponible: Total - Header (56px) - Footer (80px en movil, 64px en pc)
-        const footerHeight = mobile ? 80 : 64;
-        const headerHeight = 56;
-        const maxHeight = window.innerHeight - headerHeight - footerHeight - 40; // 40px padding extra
-        
-        let pageW, pageH;
-        if (mobile) {
-            pageW = maxWidth - 32;
-            pageH = pageW / pdfAspectRatio;
-            if (pageH > maxHeight) {
-                pageH = maxHeight;
-                pageW = pageH * pdfAspectRatio;
-            }
-        } else {
-            pageW = (maxWidth - 120) / 2;
-            pageH = pageW / pdfAspectRatio;
-            if (pageH > maxHeight) {
-                pageH = maxHeight;
-                pageW = pageH * pdfAspectRatio;
-            }
-        }
-        setBookDimensions({ width: Math.floor(pageW), height: Math.floor(pageH) });
-    };
+  // Lógica de redimensionamiento mejorada
+  const handleResize = useCallback(() => {
+    if (!containerRef.current) return;
     
+    const winW = window.innerWidth;
+    const winH = window.innerHeight;
+    
+    // Decidir si usar modo "single page" (mobile) o "double page"
+    // Forzamos modo móvil si el ancho es menor a 768 o si la pantalla es vertical
+    const mobile = winW < 768 || winH > winW;
+    setIsMobileMode(mobile);
+    
+    // Altura ocupada por UI: Header (56px) + Progress (4px) + Footer (64px) + Margen seguridad (32px)
+    const uiHeight = 56 + 4 + 64 + 32;
+    const availableWidth = winW - (mobile ? 32 : 64);
+    const availableHeight = winH - uiHeight;
+    
+    let pageW, pageH;
+
+    if (mobile) {
+        // En móvil (una página), la página debe caber en el ancho disponible
+        pageW = availableWidth;
+        pageH = pageW / pdfAspectRatio;
+        
+        // Si la altura calculada excede la disponible, ajustamos por altura
+        if (pageH > availableHeight) {
+            pageH = availableHeight;
+            pageW = pageH * pdfAspectRatio;
+        }
+    } else {
+        // En desktop (dos páginas), el "book" tiene el doble de ancho que una página
+        // Queremos que las DOS páginas quepan en availableWidth
+        const maxBookWidth = availableWidth;
+        const maxBookHeight = availableHeight;
+        
+        // Calculamos dimensiones de UNA página
+        pageW = maxBookWidth / 2;
+        pageH = pageW / pdfAspectRatio;
+        
+        if (pageH > maxBookHeight) {
+            pageH = maxBookHeight;
+            pageW = pageH * pdfAspectRatio;
+        }
+    }
+    
+    setBookDimensions({ 
+        width: Math.floor(pageW), 
+        height: Math.floor(pageH) 
+    });
+    
+    // Cambiamos la key para forzar re-montaje del flipbook si las dimensiones cambian drásticamente
+    setOrientationKey(prev => prev + 1);
+  }, [pdfAspectRatio]);
+
+  useEffect(() => {
     handleResize();
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [pdfAspectRatio]);
+    window.addEventListener('orientationchange', handleResize);
+    return () => {
+        window.removeEventListener('resize', handleResize);
+        window.removeEventListener('orientationchange', handleResize);
+    };
+  }, [handleResize]);
 
   const handleFlip = useCallback((e: any) => {
     setCurrentPageIndex(e.data);
@@ -164,7 +194,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
   return (
     <div className="fixed inset-0 z-50 bg-[#0d0e10] flex flex-col h-[100dvh] overflow-hidden select-none">
       
-      {/* HEADER FIJO */}
+      {/* HEADER */}
       <header className="h-14 shrink-0 flex items-center justify-between px-4 bg-black/40 border-b border-white/5 backdrop-blur-md z-[60]">
         <div className="flex-1 min-w-0">
             <h1 className="text-white font-medium truncate text-sm">
@@ -182,10 +212,10 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
         </div>
       </header>
 
-      {/* ÁREA CENTRAL DE LECTURA */}
+      {/* ÁREA CENTRAL */}
       <main 
         ref={containerRef}
-        className="flex-1 relative flex items-center justify-center overflow-hidden touch-none"
+        className="flex-1 relative flex items-center justify-center overflow-hidden touch-none p-4"
         onMouseDown={(e) => handleStart(e.clientX, e.clientY)}
         onMouseMove={(e) => handleMove(e.clientX, e.clientY)}
         onMouseUp={() => setIsDragging(false)}
@@ -198,12 +228,13 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
           </div>
         )}
         
-        {!loading && !error && (
+        {!loading && !error && bookDimensions.width > 0 && (
             <div 
                 className="transition-transform duration-200 ease-out"
                 style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
             >
                 <HTMLFlipBook
+                    key={orientationKey} // Forzar re-renderizado al cambiar orientación
                     width={bookDimensions.width}
                     height={bookDimensions.height}
                     size="fixed"
@@ -212,6 +243,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
                     ref={bookRef}
                     className="shadow-[0_40px_100px_rgba(0,0,0,1)]"
                     usePortrait={isMobileMode}
+                    startPage={currentPageIndex}
                     drawShadow={true}
                     flippingTime={800}
                     swipeDistance={40}
@@ -225,7 +257,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
                                 width={bookDimensions.width}
                                 height={bookDimensions.height}
                                 priority={Math.abs(currentPageIndex - index) <= 1}
-                                onPageJump={(idx) => bookRef.current.pageFlip().flip(idx)}
+                                onPageJump={(idx) => bookRef.current?.pageFlip().flip(idx)}
                             />
                         </Page>
                     ))}
@@ -236,10 +268,16 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
         {/* Flechas Navegación PC */}
         {!isMobileMode && zoom === 1 && !loading && (
             <>
-                <button onClick={() => bookRef.current.pageFlip().flipPrev()} className="absolute left-6 p-4 rounded-full bg-black/40 text-white/50 hover:text-white backdrop-blur-md transition-all">
+                <button 
+                  onClick={() => bookRef.current?.pageFlip().flipPrev()} 
+                  className="absolute left-6 p-4 rounded-full bg-black/40 text-white/50 hover:text-white backdrop-blur-md transition-all z-[70]"
+                >
                     <ChevronLeft className="w-8 h-8" />
                 </button>
-                <button onClick={() => bookRef.current.pageFlip().flipNext()} className="absolute right-6 p-4 rounded-full bg-black/40 text-white/50 hover:text-white backdrop-blur-md transition-all">
+                <button 
+                  onClick={() => bookRef.current?.pageFlip().flipNext()} 
+                  className="absolute right-6 p-4 rounded-full bg-black/40 text-white/50 hover:text-white backdrop-blur-md transition-all z-[70]"
+                >
                     <ChevronRight className="w-8 h-8" />
                 </button>
             </>
@@ -254,10 +292,8 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
           />
       </div>
 
-      {/* BARRA DE ACCIÓN INFERIOR FIJA (ESTILO APP) */}
-      <nav className="h-16 sm:h-16 shrink-0 bg-black/80 border-t border-white/10 flex items-center justify-around px-4 pb-[env(safe-area-inset-bottom)] z-[60] backdrop-blur-xl">
-          
-          {/* Zoom Control */}
+      {/* BARRA DE ACCIÓN INFERIOR */}
+      <nav className="h-16 shrink-0 bg-black/80 border-t border-white/10 flex items-center justify-around px-4 pb-[env(safe-area-inset-bottom)] z-[60] backdrop-blur-xl">
           <button 
             onClick={() => updateZoom(zoom === 1 ? 2 : 1)}
             className={`p-3 rounded-xl flex flex-col items-center gap-1 transition-all ${zoom > 1 ? 'text-brand-400' : 'text-white/40 hover:text-white'}`}
@@ -266,18 +302,14 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
               <span className="text-[8px] font-bold uppercase tracking-widest">{zoom > 1 ? '1x' : 'Zoom'}</span>
           </button>
 
-          {/* ACCIÓN PRINCIPAL: COMPARTIR */}
           <button 
             onClick={handleShare}
-            className="flex items-center gap-3 px-8 py-3 bg-gradient-to-r from-brand-600 to-blue-600 text-white rounded-full shadow-lg shadow-brand-900/40 active:scale-95 transition-transform"
+            className="flex items-center justify-center p-4 bg-gradient-to-r from-brand-600 to-blue-600 text-white rounded-full shadow-lg shadow-brand-900/40 active:scale-95 transition-all hover:scale-105"
+            title="Compartir"
           >
-              <Share2 className="w-5 h-5" />
-              <span className="text-xs font-black uppercase tracking-widest">
-                  Compartir vía...
-              </span>
+              <Share2 className="w-6 h-6" />
           </button>
 
-          {/* Descargar */}
           <button 
             onClick={handleDownload}
             className="p-3 rounded-xl flex flex-col items-center gap-1 text-white/40 hover:text-white transition-all"
