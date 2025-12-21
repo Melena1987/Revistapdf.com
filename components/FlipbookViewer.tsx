@@ -182,6 +182,29 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
       document.body.removeChild(link);
   };
 
+  const handleShare = async () => {
+    const identifier = magazine.slug || magazine.id;
+    const shareUrl = `${window.location.origin}${window.location.pathname.replace('index.html', '')}#/view/${identifier}`;
+    
+    if (navigator.share) {
+        try {
+            await navigator.share({
+                title: magazine.title,
+                text: magazine.description || `Lee "${magazine.title}" en formato revista digital en REVISTAPDF.COM`,
+                url: shareUrl,
+            });
+        } catch (err) {
+            console.log('Share cancelled or failed', err);
+            // Fallback to custom modal if failed or user wants manual copy
+            if ((err as Error).name !== 'AbortError') {
+                setIsShareModalOpen(true);
+            }
+        }
+    } else {
+        setIsShareModalOpen(true);
+    }
+  };
+
   useEffect(() => {
       const handleKey = (e: KeyboardEvent) => {
           if (e.key === 'ArrowRight') onNext();
@@ -248,49 +271,43 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
     <div className="fixed inset-0 z-50 bg-dark-900 flex flex-col h-screen overflow-hidden animate-in fade-in duration-300">
       
       {/* Header */}
-      <div className="h-16 border-b border-white/10 flex items-center justify-between px-4 bg-dark-800 shrink-0 shadow-md z-50">
-        <div className="flex items-center gap-4 min-w-0">
-            <h1 className="text-white font-medium truncate max-w-[120px] sm:max-w-md text-sm sm:text-base">{magazine.title}</h1>
+      <div className="h-16 border-b border-white/10 flex items-center justify-between px-3 sm:px-4 bg-dark-800 shrink-0 shadow-md z-50">
+        <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+            <h1 className="text-white font-medium truncate max-w-[100px] min-[400px]:max-w-[160px] sm:max-w-md text-sm sm:text-base">{magazine.title}</h1>
         </div>
         
-        <div className="flex items-center gap-1.5 sm:gap-4">
-             {!user && (
-                <button 
-                    onClick={() => navigate('/login')}
-                    className="hidden lg:flex items-center gap-2 px-4 py-1.5 bg-gradient-to-r from-brand-600 to-blue-600 hover:from-brand-500 hover:to-blue-500 text-white text-xs sm:text-sm font-medium rounded-full shadow-lg transition-transform hover:scale-105 mr-2"
-                >
-                    <Sparkles className="w-3 h-3 sm:w-4 sm:h-4 text-yellow-300" />
-                    <span>Crea tu revista</span>
-                </button>
-            )}
+        <div className="flex items-center gap-1 sm:gap-4">
+            {/* Download Button (Desktop Only) */}
+            <button 
+                onClick={handleDownload}
+                className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-colors hidden sm:block" 
+                title="Descargar PDF"
+            >
+                <Download className="w-5 h-5" />
+            </button>
 
-            <div className="flex items-center gap-1">
-                <button 
-                    onClick={handleDownload}
-                    className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-colors hidden sm:block" 
-                    title="Descargar PDF"
-                >
-                    <Download className="w-4 h-4 sm:w-5 sm:h-5" />
-                </button>
-                <button 
-                    onClick={() => setIsShareModalOpen(true)}
-                    className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-colors" 
-                    title="Compartir"
-                >
-                    <Share2 className="w-4 h-4 sm:w-5 sm:h-5" />
-                </button>
-            </div>
+            {/* Improved Share Button for Mobile Visibility */}
+            <button 
+                onClick={handleShare}
+                className="flex items-center gap-2 px-3 py-1.5 sm:p-2 bg-brand-600/10 sm:bg-transparent text-brand-400 sm:text-gray-400 hover:text-white hover:bg-brand-600 sm:hover:bg-white/10 rounded-full transition-all active:scale-95" 
+                title="Compartir"
+            >
+                <Share2 className="w-4 h-4 sm:w-5 sm:h-5" />
+                <span className="text-xs font-bold sm:hidden uppercase">Compartir</span>
+            </button>
 
-            <div className="w-px h-6 bg-white/10 mx-1 hidden sm:block"></div>
+            <div className="w-px h-6 bg-white/10 mx-1 hidden min-[450px]:block"></div>
 
-            <div className="flex items-center bg-dark-900/50 rounded-lg p-1 border border-white/5">
+            {/* Zoom Controls */}
+            <div className="flex items-center bg-dark-900/50 rounded-lg p-0.5 border border-white/5">
                 <button onClick={() => updateZoom(zoom - 0.5)} className="p-1.5 text-gray-400 hover:text-white"><ZoomOut className="w-4 h-4"/></button>
                 <span className="text-[10px] sm:text-xs text-gray-500 w-8 sm:w-10 text-center">{Math.round(zoom * 100)}%</span>
                 <button onClick={() => updateZoom(zoom + 0.5)} className="p-1.5 text-gray-400 hover:text-white"><ZoomIn className="w-4 h-4"/></button>
             </div>
 
             <div className="w-px h-6 bg-white/10 mx-1 hidden sm:block"></div>
-            <button onClick={onClose} className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full">
+            
+            <button onClick={onClose} className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-colors">
                 <X className="w-5 h-5" />
             </button>
         </div>
