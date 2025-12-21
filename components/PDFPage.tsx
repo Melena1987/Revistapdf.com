@@ -32,7 +32,7 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
 
     const render = async () => {
       try {
-        if (rendered && !priority) return; // Solo re-renderizar si es necesario o prioritario
+        if (rendered && !priority) return; 
         setIsRendering(true);
 
         const page = await pdfDoc.getPage(pageNum);
@@ -45,9 +45,7 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
         const scale = Math.min(scaleX, scaleY);
         const dpr = window.devicePixelRatio || 1;
         
-        // Viewport for Canvas (High Res)
         const viewport = page.getViewport({ scale: scale * dpr });
-        // Viewport for CSS Layers (Standard Res)
         const cssViewport = page.getViewport({ scale: scale });
 
         // --- 1. Render Canvas ---
@@ -102,7 +100,6 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
                  textDivs: []
                }).promise;
 
-               // FIX TEXTO: Detener propagación al interactuar con el texto
                const stopProp = (e: Event) => e.stopPropagation();
                textDiv.addEventListener('mousedown', stopProp, { capture: true });
                textDiv.addEventListener('touchstart', stopProp, { capture: true });
@@ -141,7 +138,7 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
                              try {
                                  let index = -1;
                                  if (typeof dest === 'string') {
-                                     // Se podría buscar por ID
+                                     // Buscar por ID si fuera necesario
                                  } else if (Array.isArray(dest)) {
                                      index = await pdfDoc.getPageIndex(dest[0]);
                                  }
@@ -172,32 +169,44 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
                              downloadManager: null
                          });
 
-                         // --- FIX CRITICO: Interceptar eventos para que react-pageflip no los robe ---
-                         const interactiveElements = annotationDiv.querySelectorAll('.linkAnnotation, a, .buttonWidgetAnnotation, input, select, textarea');
+                         // --- CORRECCIÓN DE INTERACTIVIDAD ---
+                         // Buscamos todos los elementos que PDF.js genera para enlaces y widgets
+                         const interactiveElements = annotationDiv.querySelectorAll('.linkAnnotation, a, .buttonWidgetAnnotation, .internalLink');
                          
                          interactiveElements.forEach((el) => {
                              const element = el as HTMLElement;
+                             
+                             // Aseguramos que el elemento sea sensible a eventos
                              element.style.pointerEvents = 'auto';
+                             element.style.cursor = 'pointer';
 
-                             const stopPropagation = (e: Event) => {
+                             const preventAndStop = (e: Event) => {
                                  e.stopPropagation();
                              };
 
-                             // Registramos en fase de CAPTURA para adelantarnos a la captura del flipbook
-                             element.addEventListener('mousedown', stopPropagation, { capture: true });
-                             element.addEventListener('touchstart', stopPropagation, { capture: true });
-                             element.addEventListener('pointerdown', stopPropagation, { capture: true });
+                             // Bloqueamos la propagación en fase de captura para que el flipbook no intercepte el arrastre
+                             element.addEventListener('mousedown', preventAndStop, { capture: true });
+                             element.addEventListener('touchstart', preventAndStop, { capture: true });
+                             element.addEventListener('pointerdown', preventAndStop, { capture: true });
                              
+                             // Manejo explícito del clic para enlaces externos
                              element.addEventListener('click', (e) => {
+                                 // Detener propagación al flipbook
                                  e.stopPropagation();
+
+                                 // Si es un <a> o contiene uno, verificamos el destino
                                  const link = element.tagName === 'A' ? (element as HTMLAnchorElement) : element.querySelector('a');
-                                 if (link && link.href && (link.href.startsWith('http') || link.href.startsWith('mailto'))) {
-                                     e.preventDefault();
-                                     window.open(link.href, link.target || '_blank', 'noopener,noreferrer');
+                                 
+                                 if (link && link.href) {
+                                     const href = link.href;
+                                     // Si es un enlace externo (web o mailto), forzamos la apertura manual
+                                     if (href.startsWith('http') || href.startsWith('mailto:')) {
+                                         e.preventDefault();
+                                         window.open(href, '_blank', 'noopener,noreferrer');
+                                     }
+                                     // Los enlaces internos (#page=...) son manejados por el linkService.goToDestination ya configurado
                                  }
                              }, { capture: true });
-                             
-                             element.style.cursor = 'pointer';
                          });
                     }
                 }
