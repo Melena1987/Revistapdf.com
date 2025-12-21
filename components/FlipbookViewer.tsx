@@ -1,6 +1,6 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut, Loader2, AlertCircle, Sparkles, Download, Share2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut, Loader2, AlertCircle, Sparkles, Download, Share2, Maximize2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import HTMLFlipBook from 'react-pageflip';
 import { getPdfDocument } from '../services/pdf';
@@ -9,13 +9,11 @@ import { PDFPage } from './PDFPage';
 import { useAuth } from '../store/auth-context';
 import ShareModal from './ShareModal';
 
-// Wrapper component required by react-pageflip (Must use forwardRef)
 const Page = React.forwardRef<HTMLDivElement, any>((props, ref) => {
     return (
         <div ref={ref} className="bg-white shadow-sm overflow-hidden" style={{ padding: 0 }}>
             <div className="w-full h-full relative">
                  {props.children}
-                 {/* Page Number Footer */}
                  <div className="absolute bottom-2 right-4 text-[10px] text-gray-400 z-30 font-sans">
                     {props.number}
                  </div>
@@ -38,47 +36,52 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
-  const [currentPageIndex, setCurrentPageIndex] = useState(0); // 0-based index
+  const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [uiVisible, setUiVisible] = useState(true);
   
-  // Dimensions for the flipbook
   const [bookDimensions, setBookDimensions] = useState({ width: 0, height: 0 });
-  // PDF Aspect Ratio (width / height)
   const [pdfAspectRatio, setPdfAspectRatio] = useState(0.7071);
   const [isMobileMode, setIsMobileMode] = useState(window.innerWidth < 768);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const bookRef = useRef<any>(null); // React-pageflip ref
+  const bookRef = useRef<any>(null);
+  const uiTimeoutRef = useRef<number | null>(null);
 
-  // Dragging logic for Pan (when zoomed)
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
   const panStartRef = useRef({ x: 0, y: 0 });
 
-  // Pinch to Zoom Ref
   const initialPinchDistanceRef = useRef<number | null>(null);
   const initialZoomRef = useRef<number>(1);
+
+  // Auto-hide UI logic
+  const resetUiTimeout = useCallback(() => {
+    setUiVisible(true);
+    if (uiTimeoutRef.current) window.clearTimeout(uiTimeoutRef.current);
+    uiTimeoutRef.current = window.setTimeout(() => {
+      if (zoom === 1) setUiVisible(false);
+    }, 4000);
+  }, [zoom]);
+
+  useEffect(() => {
+    resetUiTimeout();
+    return () => { if (uiTimeoutRef.current) window.clearTimeout(uiTimeoutRef.current); };
+  }, [resetUiTimeout]);
 
   useEffect(() => {
     const loadPdf = async () => {
       setLoading(true);
-      setError(null);
       try {
         const doc = await getPdfDocument(magazine.pdfUrl);
         setPdfDoc(doc);
         setTotalPages(doc.numPages);
-        
-        // Detect Aspect Ratio from Page 1 to ensure fit
         const page = await doc.getPage(1);
         const viewport = page.getViewport({ scale: 1 });
-        if (viewport.width && viewport.height) {
-            setPdfAspectRatio(viewport.width / viewport.height);
-        }
-
-      } catch (err: any) {
-        console.error("Error loading PDF", err);
+        if (viewport.width && viewport.height) setPdfAspectRatio(viewport.width / viewport.height);
+      } catch (err) {
         setError("No se pudo cargar el documento.");
       } finally {
         setLoading(false);
@@ -87,92 +90,75 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
     loadPdf();
   }, [magazine.pdfUrl]);
 
-  // Enhanced Responsive Resizing Logic
   useEffect(() => {
     const handleResize = () => {
         if (!containerRef.current) return;
-        
-        const maxWidth = window.innerWidth;
-        const maxHeight = window.innerHeight - 80; // Subtract UI/margins
-        
-        const isSmallHeight = window.innerHeight < 500;
-        const isSmallWidth = window.innerWidth < 768;
-        const mobile = isSmallWidth || isSmallHeight;
+        const mobile = window.innerWidth < 768 || window.innerHeight < 500;
         setIsMobileMode(mobile);
+        const maxWidth = window.innerWidth;
+        const maxHeight = window.innerHeight - (mobile ? 60 : 80);
         
         let pageW, pageH;
-
         if (mobile) {
-            // Single Page Layout: Strictly bounded by available width AND height
-            const availableW = maxWidth - 40;
-            const availableH = maxHeight - 20;
-
-            pageW = availableW;
+            pageW = maxWidth - 30;
             pageH = pageW / pdfAspectRatio;
-
-            if (pageH > availableH) {
-                pageH = availableH;
+            if (pageH > maxHeight - 100) {
+                pageH = maxHeight - 100;
                 pageW = pageH * pdfAspectRatio;
             }
         } else {
-            // Double Page Layout (Side by Side)
-            const availableW = (maxWidth - 100) / 2; 
-            const availableH = maxHeight - 40;
-
-            pageW = availableW;
+            pageW = (maxWidth - 120) / 2;
             pageH = pageW / pdfAspectRatio;
-
-            if (pageH > availableH) {
-                pageH = availableH;
+            if (pageH > maxHeight - 60) {
+                pageH = maxHeight - 60;
                 pageW = pageH * pdfAspectRatio;
             }
         }
-
-        setBookDimensions({ 
-            width: Math.floor(Math.max(pageW, 100)), 
-            height: Math.floor(Math.max(pageH, 150)) 
-        });
+        setBookDimensions({ width: Math.floor(pageW), height: Math.floor(pageH) });
     };
-
     handleResize();
     window.addEventListener('resize', handleResize);
-    window.addEventListener('orientationchange', handleResize);
-    return () => {
-        window.removeEventListener('resize', handleResize);
-        window.removeEventListener('orientationchange', handleResize);
-    };
+    return () => window.removeEventListener('resize', handleResize);
   }, [pdfAspectRatio]);
 
   const handleFlip = useCallback((e: any) => {
-      setCurrentPageIndex(e.data);
-  }, []);
-
-  const handlePageJump = useCallback((pageIndex: number) => {
-    if (bookRef.current) {
-        bookRef.current.pageFlip().flip(pageIndex);
-    }
-  }, []);
+    setCurrentPageIndex(e.data);
+    resetUiTimeout();
+  }, [resetUiTimeout]);
 
   const updateZoom = (val: number) => {
       const newZoom = Math.min(Math.max(1, val), 4);
       setZoom(newZoom);
-      if (newZoom === 1) setPan({ x: 0, y: 0 });
-  };
-
-  const onNext = () => {
-      if (bookRef.current && zoom === 1) {
-          bookRef.current.pageFlip().flipNext();
+      if (newZoom === 1) {
+          setPan({ x: 0, y: 0 });
+          resetUiTimeout();
+      } else {
+          setUiVisible(true);
       }
   };
 
-  const onPrev = () => {
-      if (bookRef.current && zoom === 1) {
-          bookRef.current.pageFlip().flipPrev();
-      }
+  const handleShare = async () => {
+    resetUiTimeout();
+    const identifier = magazine.slug || magazine.id;
+    const shareUrl = `${window.location.origin}${window.location.pathname.replace('index.html', '')}#/view/${identifier}`;
+    
+    if (navigator.share) {
+        try {
+            await navigator.share({
+                title: magazine.title,
+                text: `Lee "${magazine.title}" en formato revista digital`,
+                url: shareUrl,
+            });
+        } catch (err) {
+            if ((err as Error).name !== 'AbortError') setIsShareModalOpen(true);
+        }
+    } else {
+        setIsShareModalOpen(true);
+    }
   };
 
   const handleDownload = () => {
-      // Trigger download using the PDF URL
+      resetUiTimeout();
       const link = document.createElement('a');
       link.href = magazine.pdfUrl;
       link.target = '_blank';
@@ -182,41 +168,9 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
       document.body.removeChild(link);
   };
 
-  const handleShare = async () => {
-    const identifier = magazine.slug || magazine.id;
-    const shareUrl = `${window.location.origin}${window.location.pathname.replace('index.html', '')}#/view/${identifier}`;
-    
-    if (navigator.share) {
-        try {
-            await navigator.share({
-                title: magazine.title,
-                text: magazine.description || `Lee "${magazine.title}" en formato revista digital en REVISTAPDF.COM`,
-                url: shareUrl,
-            });
-        } catch (err) {
-            console.log('Share cancelled or failed', err);
-            // Fallback to custom modal if failed or user wants manual copy
-            if ((err as Error).name !== 'AbortError') {
-                setIsShareModalOpen(true);
-            }
-        }
-    } else {
-        setIsShareModalOpen(true);
-    }
-  };
-
-  useEffect(() => {
-      const handleKey = (e: KeyboardEvent) => {
-          if (e.key === 'ArrowRight') onNext();
-          if (e.key === 'ArrowLeft') onPrev();
-          if (e.key === 'Escape') onClose();
-      };
-      window.addEventListener('keydown', handleKey);
-      return () => window.removeEventListener('keydown', handleKey);
-  }, [zoom]);
-
-  // Mouse/Touch Pan Logic
+  // Interactions
   const handleStart = (clientX: number, clientY: number) => {
+    resetUiTimeout();
     if (zoom > 1) {
         setIsDragging(true);
         dragStartRef.current = { x: clientX, y: clientY };
@@ -232,140 +186,65 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
     }
   };
 
-  const handleEnd = () => setIsDragging(false);
-
-  // Pinch to Zoom Handlers
-  const handleTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length === 2) {
-      const dist = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      );
-      initialPinchDistanceRef.current = dist;
-      initialZoomRef.current = zoom;
-    } else if (e.touches.length === 1) {
-      handleStart(e.touches[0].clientX, e.touches[0].clientY);
-    }
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (e.touches.length === 2 && initialPinchDistanceRef.current !== null) {
-      const dist = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      );
-      const delta = dist / initialPinchDistanceRef.current;
-      const newZoom = initialZoomRef.current * delta;
-      updateZoom(newZoom);
-    } else if (e.touches.length === 1) {
-      handleMove(e.touches[0].clientX, e.touches[0].clientY);
-    }
-  };
-
-  const handleTouchEnd = () => {
-    initialPinchDistanceRef.current = null;
-    handleEnd();
-  };
-
   return (
-    <div className="fixed inset-0 z-50 bg-dark-900 flex flex-col h-screen overflow-hidden animate-in fade-in duration-300">
+    <div className="fixed inset-0 z-50 bg-[#1a1c1e] flex flex-col h-screen overflow-hidden select-none">
       
-      {/* Header */}
-      <div className="h-16 border-b border-white/10 flex items-center justify-between px-3 sm:px-4 bg-dark-800 shrink-0 shadow-md z-50">
-        <div className="flex items-center gap-2 sm:gap-4 min-w-0">
-            <h1 className="text-white font-medium truncate max-w-[100px] min-[400px]:max-w-[160px] sm:max-w-md text-sm sm:text-base">{magazine.title}</h1>
+      {/* Dynamic Header */}
+      <div className={`absolute top-0 inset-x-0 h-14 sm:h-16 flex items-center justify-between px-4 z-50 transition-all duration-500 transform ${uiVisible ? 'translate-y-0 opacity-100' : '-translate-y-full opacity-0'} bg-gradient-to-b from-black/80 to-transparent`}>
+        <div className="flex-1 min-w-0 sm:flex-none">
+            <h1 className="text-white font-semibold truncate text-sm sm:text-base max-w-[200px] sm:max-w-md">
+                {magazine.title}
+            </h1>
+        </div>
+
+        {/* Center - Mobile Status (Page X of Y) */}
+        <div className="hidden sm:block absolute left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-md px-3 py-1 rounded-full border border-white/10">
+            <span className="text-xs text-white/80 font-medium">Página {currentPageIndex + 1} de {totalPages}</span>
         </div>
         
-        <div className="flex items-center gap-1 sm:gap-4">
-            {/* Download Button (Desktop Only) */}
-            <button 
-                onClick={handleDownload}
-                className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-colors hidden sm:block" 
-                title="Descargar PDF"
-            >
-                <Download className="w-5 h-5" />
-            </button>
-
-            {/* Improved Share Button for Mobile Visibility */}
-            <button 
-                onClick={handleShare}
-                className="flex items-center gap-2 px-3 py-1.5 sm:p-2 bg-brand-600/10 sm:bg-transparent text-brand-400 sm:text-gray-400 hover:text-white hover:bg-brand-600 sm:hover:bg-white/10 rounded-full transition-all active:scale-95" 
-                title="Compartir"
-            >
-                <Share2 className="w-4 h-4 sm:w-5 sm:h-5" />
-                <span className="text-xs font-bold sm:hidden uppercase">Compartir</span>
-            </button>
-
-            <div className="w-px h-6 bg-white/10 mx-1 hidden min-[450px]:block"></div>
-
-            {/* Zoom Controls */}
-            <div className="flex items-center bg-dark-900/50 rounded-lg p-0.5 border border-white/5">
-                <button onClick={() => updateZoom(zoom - 0.5)} className="p-1.5 text-gray-400 hover:text-white"><ZoomOut className="w-4 h-4"/></button>
-                <span className="text-[10px] sm:text-xs text-gray-500 w-8 sm:w-10 text-center">{Math.round(zoom * 100)}%</span>
-                <button onClick={() => updateZoom(zoom + 0.5)} className="p-1.5 text-gray-400 hover:text-white"><ZoomIn className="w-4 h-4"/></button>
-            </div>
-
-            <div className="w-px h-6 bg-white/10 mx-1 hidden sm:block"></div>
-            
-            <button onClick={onClose} className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-colors">
+        <div className="flex items-center gap-2">
+            {!isMobileMode && (
+                <button onClick={handleDownload} className="p-2 text-white/70 hover:text-white transition-colors" title="Descargar">
+                    <Download className="w-5 h-5" />
+                </button>
+            )}
+            <button onClick={onClose} className="p-2 text-white/70 hover:text-white transition-colors bg-white/5 rounded-full backdrop-blur-sm">
                 <X className="w-5 h-5" />
             </button>
         </div>
       </div>
 
-      {/* Viewer Area */}
+      {/* Main Viewer */}
       <div 
         ref={containerRef}
-        className="flex-1 relative bg-[#2b2e33] flex items-center justify-center overflow-hidden touch-none"
+        className="flex-1 relative flex items-center justify-center overflow-hidden touch-none"
+        onClick={() => !isDragging && resetUiTimeout()}
         onMouseDown={(e) => handleStart(e.clientX, e.clientY)}
         onMouseMove={(e) => handleMove(e.clientX, e.clientY)}
-        onMouseUp={handleEnd}
-        onMouseLeave={handleEnd}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
+        onMouseUp={() => setIsDragging(false)}
         style={{ cursor: zoom > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
       >
-        {loading && <div className="flex flex-col items-center"><Loader2 className="w-10 h-10 text-brand-500 animate-spin mb-4" /><span className="text-white">Cargando Libro...</span></div>}
+        {loading && <div className="flex flex-col items-center gap-4"><Loader2 className="w-12 h-12 text-brand-500 animate-spin" /><span className="text-white/50 text-sm animate-pulse uppercase tracking-widest">Iniciando motor de lectura</span></div>}
         
-        {error && (
-             <div className="text-center p-8 bg-dark-800 rounded-xl border border-white/10 max-w-md mx-4">
-                <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-                <h3 className="text-xl text-white font-bold mb-2">Error</h3>
-                <p className="text-gray-400">{error}</p>
-             </div>
-        )}
-
-        {/* Flipbook Container */}
-        {!loading && !error && totalPages > 0 && bookDimensions.width > 0 && (
+        {!loading && !error && (
             <div 
-                className="transition-transform duration-100 ease-out"
-                style={{
-                    transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                    transformOrigin: 'center center'
-                }}
+                className="transition-transform duration-200 ease-out"
+                style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
             >
                 <HTMLFlipBook
                     width={bookDimensions.width}
                     height={bookDimensions.height}
                     size="fixed"
                     showCover={true}
-                    maxShadowOpacity={0.5}
-                    mobileScrollSupport={zoom === 1}
-                    showSwipeHint={zoom === 1}
                     onFlip={handleFlip}
                     ref={bookRef}
-                    className="shadow-2xl"
-                    style={{ margin: '0 auto' }}
+                    className="shadow-[0_20px_60px_rgba(0,0,0,0.8)]"
                     usePortrait={isMobileMode}
-                    startPage={0}
                     drawShadow={true}
-                    flippingTime={1000}
-                    swipeDistance={30}
+                    flippingTime={800}
+                    swipeDistance={40}
                     clickEventForward={zoom === 1}
-                    useMouseEvents={zoom === 1}
                 >
-                    {/* Render Pages */}
                     {Array.from({ length: totalPages }).map((_, index) => (
                         <Page key={index} number={index + 1}>
                             <PDFPage 
@@ -373,8 +252,8 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
                                 pageNum={index + 1}
                                 width={bookDimensions.width}
                                 height={bookDimensions.height}
-                                priority={Math.abs(currentPageIndex - index) <= 2}
-                                onPageJump={handlePageJump}
+                                priority={Math.abs(currentPageIndex - index) <= 1}
+                                onPageJump={(idx) => bookRef.current.pageFlip().flip(idx)}
                             />
                         </Page>
                     ))}
@@ -382,24 +261,58 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
             </div>
         )}
 
-        {/* Navigation Arrows (Visible only when not zoomed) */}
-        {!loading && !error && zoom === 1 && (
+        {/* Desktop Navigation */}
+        {!isMobileMode && zoom === 1 && !loading && (
             <>
-                <button 
-                    onClick={onPrev}
-                    className="absolute left-2 sm:left-4 md:left-8 top-1/2 -translate-y-1/2 z-40 p-2 sm:p-3 rounded-full bg-dark-900/60 text-white hover:bg-brand-600 transition-all shadow-xl backdrop-blur-sm border border-white/10 active:scale-95"
-                >
-                    <ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" />
+                <button onClick={() => bookRef.current.pageFlip().flipPrev()} className="absolute left-6 top-1/2 -translate-y-1/2 p-4 rounded-full bg-white/5 hover:bg-white/10 text-white/40 hover:text-white transition-all backdrop-blur-md group">
+                    <ChevronLeft className="w-8 h-8 group-active:scale-90 transition-transform" />
                 </button>
-                <button 
-                    onClick={onNext}
-                    className="absolute right-2 sm:right-4 md:right-8 top-1/2 -translate-y-1/2 z-40 p-2 sm:p-3 rounded-full bg-dark-900/60 text-white hover:bg-brand-600 transition-all shadow-xl backdrop-blur-sm border border-white/10 active:scale-95"
-                >
-                    <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6" />
+                <button onClick={() => bookRef.current.pageFlip().flipNext()} className="absolute right-6 top-1/2 -translate-y-1/2 p-4 rounded-full bg-white/5 hover:bg-white/10 text-white/40 hover:text-white transition-all backdrop-blur-md group">
+                    <ChevronRight className="w-8 h-8 group-active:scale-90 transition-transform" />
                 </button>
             </>
         )}
       </div>
+
+      {/* Mobile SMART ACTION DOCK (Floating) */}
+      <div className={`absolute bottom-6 inset-x-0 flex justify-center z-50 transition-all duration-500 ${uiVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`}>
+          <div className="flex items-center gap-1 p-1.5 bg-black/60 backdrop-blur-xl border border-white/10 rounded-full shadow-2xl">
+              
+              {/* Zoom Switcher */}
+              <button 
+                onClick={() => updateZoom(zoom === 1 ? 2 : 1)}
+                className={`p-3 rounded-full transition-all ${zoom > 1 ? 'bg-brand-500 text-white' : 'text-white/60 hover:text-white'}`}
+              >
+                  {zoom > 1 ? <Maximize2 className="w-5 h-5" /> : <ZoomIn className="w-5 h-5" />}
+              </button>
+
+              <div className="w-px h-6 bg-white/10 mx-1"></div>
+
+              {/* Central Primary Action: Share */}
+              <button 
+                onClick={handleShare}
+                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-brand-600 to-blue-600 hover:from-brand-500 hover:to-blue-500 text-white rounded-full shadow-lg active:scale-95 transition-all"
+              >
+                  <Share2 className="w-4 h-4" />
+                  <span className="text-xs font-bold uppercase tracking-wider">
+                      {isMobileMode ? 'Compartir vía...' : 'Compartir Revista'}
+                  </span>
+              </button>
+
+              <div className="w-px h-6 bg-white/10 mx-1"></div>
+
+              {/* Download (Hidden text on mobile) */}
+              <button 
+                onClick={handleDownload}
+                className="p-3 text-white/60 hover:text-white transition-all"
+              >
+                  <Download className="w-5 h-5" />
+              </button>
+          </div>
+      </div>
+
+      {/* Progress Line (Subtle) */}
+      <div className="absolute bottom-0 left-0 h-0.5 bg-brand-500 transition-all duration-300 z-50" style={{ width: `${((currentPageIndex + (isMobileMode ? 1 : 2)) / totalPages) * 100}%` }} />
 
       {isShareModalOpen && (
           <ShareModal 
