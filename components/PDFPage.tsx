@@ -38,7 +38,7 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
         const page = await pdfDoc.getPage(pageNum);
         if (!mounted) return;
 
-        // --- Viewport Logic ---
+        // --- Lógica de Viewport ---
         const unscaledViewport = page.getViewport({ scale: 1 });
         const scaleX = width / unscaledViewport.width;
         const scaleY = height / unscaledViewport.height;
@@ -48,7 +48,7 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
         const viewport = page.getViewport({ scale: scale * dpr });
         const cssViewport = page.getViewport({ scale: scale });
 
-        // --- 1. Render Canvas ---
+        // --- 1. Renderizar Canvas (Imagen de Fondo) ---
         const canvas = canvasRef.current;
         if (canvas) {
           canvas.width = viewport.width;
@@ -75,12 +75,12 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
         setRendered(true);
         setIsRendering(false);
 
-        // --- Layers Rendering (Post-Canvas) ---
+        // --- Renderizado de Capas Post-Canvas ---
         const offsetX = (width - cssViewport.width) / 2;
         const offsetY = (height - cssViewport.height) / 2;
         const pdfjs = (window as any).pdfjsLib;
 
-        // --- 2. Render Text Layer (Selección de Texto) ---
+        // --- 2. Capa de Texto (Seleccionable) ---
         if (textLayerRef.current) {
            const textDiv = textLayerRef.current;
            textDiv.innerHTML = '';
@@ -100,6 +100,7 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
                  textDivs: []
                }).promise;
 
+               // Prevenir que el flipbook robe eventos durante la selección
                const stopProp = (e: Event) => e.stopPropagation();
                textDiv.addEventListener('mousedown', stopProp, { capture: true });
                textDiv.addEventListener('touchstart', stopProp, { capture: true });
@@ -110,20 +111,25 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
            }
         }
 
-        // --- 3. Render Annotation Layer (Enlaces e Interactividad) ---
+        // --- 3. Capa de Anotaciones (Enlaces e Interactividad) ---
         if (annotationLayerRef.current) {
             const annotationDiv = annotationLayerRef.current;
             annotationDiv.innerHTML = '';
             
+            // Forzar estilos inline y Z-Index extremo para evitar bloqueos
             annotationDiv.style.width = `${cssViewport.width}px`;
             annotationDiv.style.height = `${cssViewport.height}px`;
             annotationDiv.style.left = `${offsetX}px`;
             annotationDiv.style.top = `${offsetY}px`;
+            annotationDiv.style.zIndex = '1000'; // Prioridad máxima sobre el flipbook
+            annotationDiv.style.position = 'absolute';
+            annotationDiv.style.pointerEvents = 'none'; // Deja pasar eventos si no hay enlaces
 
             try {
                 const annotations = await page.getAnnotations();
+                console.log(`Página ${pageNum} - Anotaciones cargadas:`, annotations.length);
+
                 if (mounted && annotations.length > 0) {
-                    
                     const linkService = {
                         externalLinkTarget: 2, // _blank
                         externalLinkRel: 'noopener noreferrer',
@@ -138,7 +144,7 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
                              try {
                                  let index = -1;
                                  if (typeof dest === 'string') {
-                                     // Buscar por ID si fuera necesario
+                                     // ID o destino nombrado
                                  } else if (Array.isArray(dest)) {
                                      index = await pdfDoc.getPageIndex(dest[0]);
                                  }
@@ -146,7 +152,7 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
                                      onPageJump(index);
                                  }
                              } catch (e) {
-                                 console.warn("Error al resolver enlace interno", e);
+                                 console.warn("Error resolviendo destino interno", e);
                              }
                         }
                     };
@@ -169,42 +175,41 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
                              downloadManager: null
                          });
 
-                         // --- CORRECCIÓN DE INTERACTIVIDAD ---
-                         // Buscamos todos los elementos que PDF.js genera para enlaces y widgets
+                         // --- MEJORA CRÍTICA DE INTERACTIVIDAD ---
                          const interactiveElements = annotationDiv.querySelectorAll('.linkAnnotation, a, .buttonWidgetAnnotation, .internalLink');
                          
                          interactiveElements.forEach((el) => {
                              const element = el as HTMLElement;
                              
-                             // Aseguramos que el elemento sea sensible a eventos
+                             // Forzar estilos inline para asegurar visibilidad y respuesta
                              element.style.pointerEvents = 'auto';
                              element.style.cursor = 'pointer';
+                             element.style.display = 'block';
 
-                             const preventAndStop = (e: Event) => {
+                             const stopPropagation = (e: Event) => {
                                  e.stopPropagation();
                              };
 
-                             // Bloqueamos la propagación en fase de captura para que el flipbook no intercepte el arrastre
-                             element.addEventListener('mousedown', preventAndStop, { capture: true });
-                             element.addEventListener('touchstart', preventAndStop, { capture: true });
-                             element.addEventListener('pointerdown', preventAndStop, { capture: true });
+                             // Detener mousedown/touchstart evita que react-pageflip detecte un arrastre
+                             element.addEventListener('mousedown', stopPropagation, { capture: true });
+                             element.addEventListener('touchstart', stopPropagation, { capture: true });
+                             element.addEventListener('pointerdown', stopPropagation, { capture: true });
                              
-                             // Manejo explícito del clic para enlaces externos
+                             // Manejo manual de clics para enlaces
                              element.addEventListener('click', (e) => {
-                                 // Detener propagación al flipbook
-                                 e.stopPropagation();
+                                 e.stopPropagation(); // No pasar al flipbook
 
-                                 // Si es un <a> o contiene uno, verificamos el destino
                                  const link = element.tagName === 'A' ? (element as HTMLAnchorElement) : element.querySelector('a');
                                  
-                                 if (link && link.href) {
-                                     const href = link.href;
-                                     // Si es un enlace externo (web o mailto), forzamos la apertura manual
-                                     if (href.startsWith('http') || href.startsWith('mailto:')) {
+                                 if (link) {
+                                     const href = link.href || link.getAttribute('href');
+                                     console.log('Enlace detectado y clickeado:', href);
+
+                                     if (href && (href.startsWith('http') || href.startsWith('mailto:'))) {
                                          e.preventDefault();
+                                         console.log('Abriendo enlace externo manualmente:', href);
                                          window.open(href, '_blank', 'noopener,noreferrer');
                                      }
-                                     // Los enlaces internos (#page=...) son manejados por el linkService.goToDestination ya configurado
                                  }
                              }, { capture: true });
                          });
@@ -217,7 +222,7 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
 
       } catch (error: any) {
         if (error.name !== 'RenderingCancelledException') {
-            console.error(`Error rendering page ${pageNum}:`, error);
+            console.error(`Error renderizando página ${pageNum}:`, error);
         }
         if (mounted) setIsRendering(false);
       }
@@ -241,16 +246,16 @@ export const PDFPage: React.FC<PDFPageProps> = React.memo(({
           </div>
       )}
       
-      {/* 1. Canvas (Imagen de fondo) */}
+      {/* 1. Canvas (Imagen base) */}
       <canvas ref={canvasRef} className="block select-none relative z-10" />
       
-      {/* 2. Capa de Texto (Seleccionable) */}
+      {/* 2. Capa de Texto (Interactividad de texto) */}
       <div ref={textLayerRef} className="textLayer" />
 
-      {/* 3. Capa de Anotaciones (Enlaces/Botones interactivos) */}
+      {/* 3. Capa de Anotaciones (Enlaces y Botones) */}
       <div ref={annotationLayerRef} className="annotationLayer" />
       
-      {/* Sombras decorativas de pliegue */}
+      {/* Decoración: Sombra de pliegue central */}
       <div className="absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-black/5 to-transparent pointer-events-none z-40" />
       <div className="absolute inset-y-0 left-0 w-2 bg-gradient-to-r from-black/5 to-transparent pointer-events-none z-40" />
     </div>
