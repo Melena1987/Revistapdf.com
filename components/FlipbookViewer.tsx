@@ -44,7 +44,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
   const containerRef = useRef<HTMLDivElement>(null);
   const bookRef = useRef<any>(null);
 
-  // Dragging states (Mouse & Touch)
+  // Dragging states
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
   const panStartRef = useRef({ x: 0, y: 0 });
@@ -73,34 +73,25 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
   const handleResize = useCallback(() => {
     const winW = window.innerWidth;
     const winH = window.innerHeight;
-    
-    // Decidir modo móvil: si el ancho es pequeño o si es vertical
     const mobile = winW < 768 || winH > winW;
     setIsMobileMode(mobile);
     
-    // Área disponible restando UI (Header 56px + Footer 64px + Progreso 4px + Márgenes 32px)
     const availableWidth = winW - (mobile ? 20 : 80);
     const availableHeight = winH - (56 + 64 + 4 + 40);
     
     let pageW, pageH;
-
     if (mobile) {
-        // Una sola página
         pageW = availableWidth;
         pageH = pageW / pdfAspectRatio;
-        
         if (pageH > availableHeight) {
             pageH = availableHeight;
             pageW = pageH * pdfAspectRatio;
         }
     } else {
-        // Dos páginas (Desktop)
         const maxBookWidth = availableWidth;
         const maxBookHeight = availableHeight;
-        
         pageW = maxBookWidth / 2;
         pageH = pageW / pdfAspectRatio;
-        
         if (pageH > maxBookHeight) {
             pageH = maxBookHeight;
             pageW = pageH * pdfAspectRatio;
@@ -109,7 +100,6 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
     
     setBookDimensions({ width: Math.floor(pageW), height: Math.floor(pageH) });
     setOrientationKey(prev => prev + 1);
-    // Reset zoom and pan on resize for safety
     setZoom(1);
     setPan({ x: 0, y: 0 });
   }, [pdfAspectRatio]);
@@ -130,7 +120,6 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
       if (newZoom === 1) setPan({ x: 0, y: 0 });
   };
 
-  // HANDLERS PARA ARRASTRE (MOUSE + TOUCH)
   const handleStart = (clientX: number, clientY: number) => {
     if (zoom > 1) {
         setIsDragging(true);
@@ -194,7 +183,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
         </div>
       </header>
 
-      {/* ÁREA CENTRAL - CONTROL DE ARRASTRE AQUÍ */}
+      {/* ÁREA CENTRAL */}
       <main 
         ref={containerRef}
         className="flex-1 relative flex items-center justify-center overflow-hidden touch-none"
@@ -216,7 +205,8 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
         
         {!loading && !error && bookDimensions.width > 0 && (
             <div 
-                className="transition-transform duration-200 ease-out flex items-center justify-center"
+                // CRÍTICO: Eliminamos la transición mientras arrastramos para evitar parpadeo y lag
+                className={`${isDragging ? '' : 'transition-transform duration-300 ease-out'} flex items-center justify-center`}
                 style={{ 
                     transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                     transformOrigin: 'center center'
@@ -235,8 +225,8 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
                     startPage={currentPageIndex}
                     drawShadow={true}
                     flippingTime={800}
-                    swipeDistance={zoom > 1 ? 0 : 40} // Desactiva swipe si hay zoom
-                    clickEventForward={zoom === 1}    // Desactiva clicks si hay zoom
+                    swipeDistance={zoom > 1 ? 0 : 40}
+                    clickEventForward={zoom === 1}
                 >
                     {Array.from({ length: totalPages }).map((_, index) => (
                         <Page key={index} number={index + 1}>
@@ -247,6 +237,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
                                 height={bookDimensions.height}
                                 priority={Math.abs(currentPageIndex - index) <= 1}
                                 onPageJump={(idx) => bookRef.current?.pageFlip().flip(idx)}
+                                zoom={zoom} // Pasar zoom para re-renderizado de calidad
                             />
                         </Page>
                     ))}
@@ -254,7 +245,6 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
             </div>
         )}
 
-        {/* Botones Navegación PC */}
         {!isMobileMode && zoom === 1 && !loading && (
             <>
                 <button 
