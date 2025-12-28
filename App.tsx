@@ -11,6 +11,7 @@ import FlipbookViewer from './components/FlipbookViewer';
 import MagazineCard from './components/MagazineCard';
 import ShareModal from './components/ShareModal';
 import Login from './components/Login';
+import Footer from './components/Footer';
 import { Magazine } from './types';
 import { updateMetaTags, resetMetaTags } from './services/seo';
 
@@ -124,7 +125,7 @@ const Dashboard: React.FC = () => {
     <>
         <Navbar onUploadClick={handleOpenUpload} />
         
-        <div className="container mx-auto px-4 py-8">
+        <div className="container mx-auto px-4 py-8 flex-1">
             <div className="flex items-center justify-between mb-6">
                 <h2 className="text-2xl font-bold text-white">Mis Revistas</h2>
             </div>
@@ -174,8 +175,11 @@ const Dashboard: React.FC = () => {
 
 const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     return (
-        <div className="min-h-screen bg-dark-900 text-white font-sans selection:bg-brand-500/30">
-            {children}
+        <div className="min-h-screen bg-dark-900 text-white font-sans selection:bg-brand-500/30 flex flex-col">
+            <main className="flex-1 flex flex-col">
+                {children}
+            </main>
+            <Footer />
         </div>
     );
 };
