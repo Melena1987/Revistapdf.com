@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { useAuth } from '../store/auth-context';
-import { BookOpen, AlertCircle, Loader2 } from 'lucide-react';
+import { BookOpen, AlertCircle, Loader2, Eye, ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Footer from './Footer';
 
@@ -26,6 +26,10 @@ const Login: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSeeExample = () => {
+    navigate('/view/melena-marketing-agencia-de-marketing-digital-para-pymes');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -79,18 +83,34 @@ const Login: React.FC = () => {
                   Sube, gestiona y comparte tus publicaciones con el mundo mediante enlaces inteligentes y análisis de IA.
               </p>
 
-              <div className="flex gap-4 text-sm font-medium text-gray-500">
-                  <div className="flex items-center gap-2">
-                      <div className="w-1 h-1 bg-brand-500 rounded-full"></div>
-                      Lectura tipo Flipbook
+              <div className="flex flex-col gap-8">
+                  <div>
+                    <button 
+                      onClick={handleSeeExample}
+                      className="group relative inline-flex items-center gap-3 px-8 py-4 bg-brand-500/10 hover:bg-brand-500/20 border border-brand-500/30 text-white rounded-2xl font-bold transition-all hover:scale-105 backdrop-blur-md overflow-hidden"
+                    >
+                      <div className="absolute inset-0 bg-gradient-to-r from-brand-500/0 via-brand-500/10 to-brand-500/0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
+                      <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-brand-500 text-white shadow-lg group-hover:rotate-12 transition-transform">
+                        <Eye className="w-5 h-5" />
+                      </div>
+                      <span className="text-lg">Ver ejemplo real</span>
+                      <ArrowRight className="w-5 h-5 text-brand-400 group-hover:translate-x-1 transition-transform" />
+                    </button>
                   </div>
-                  <div className="flex items-center gap-2">
-                      <div className="w-1 h-1 bg-brand-500 rounded-full"></div>
-                      Análisis IA
-                  </div>
-                  <div className="flex items-center gap-2">
-                      <div className="w-1 h-1 bg-brand-500 rounded-full"></div>
-                      Alojamiento en Nube
+
+                  <div className="flex gap-4 text-sm font-medium text-gray-500">
+                      <div className="flex items-center gap-2">
+                          <div className="w-1 h-1 bg-brand-500 rounded-full"></div>
+                          Lectura tipo Flipbook
+                      </div>
+                      <div className="flex items-center gap-2">
+                          <div className="w-1 h-1 bg-brand-500 rounded-full"></div>
+                          Análisis IA
+                      </div>
+                      <div className="flex items-center gap-2">
+                          <div className="w-1 h-1 bg-brand-500 rounded-full"></div>
+                          Alojamiento en Nube
+                      </div>
                   </div>
               </div>
           </div>
@@ -106,9 +126,17 @@ const Login: React.FC = () => {
                       <BookOpen className="w-6 h-6 text-brand-500" />
                   </div>
                   <h1 className="text-2xl font-bold text-white mb-2">REVISTAPDF.COM</h1>
-                  <p className="text-gray-400 text-center text-sm">
+                  <p className="text-gray-400 text-center text-sm mb-6">
                       Tus revistas digitales en un solo lugar.
                   </p>
+                  
+                  <button 
+                    onClick={handleSeeExample}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-brand-500/10 border border-brand-500/20 text-brand-400 rounded-full text-sm font-bold uppercase tracking-wider mb-2 animate-pulse hover:animate-none transition-all"
+                  >
+                    <Eye className="w-4 h-4" />
+                    <span>Ver ejemplo real</span>
+                  </button>
               </div>
 
               {/* Desktop Header for Form */}
