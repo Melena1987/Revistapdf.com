@@ -33,7 +33,6 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
   
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   
   const [bookDimensions, setBookDimensions] = useState({ width: 0, height: 0 });
@@ -42,12 +41,14 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
   const [orientationKey, setOrientationKey] = useState(0);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const transformRef = useRef<HTMLDivElement>(null);
   const bookRef = useRef<any>(null);
 
-  // Dragging states
-  const [isDragging, setIsDragging] = useState(false);
+  // Dragging refs to avoid React re-renders during drag
+  const isDraggingRef = useRef(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
-  const panStartRef = useRef({ x: 0, y: 0 });
+  const panRef = useRef({ x: 0, y: 0 });
+  const [isDraggingState, setIsDraggingState] = useState(false); // Only for cursor style
 
   useEffect(() => {
     const loadPdf = async () => {
@@ -101,7 +102,10 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
     setBookDimensions({ width: Math.floor(pageW), height: Math.floor(pageH) });
     setOrientationKey(prev => prev + 1);
     setZoom(1);
-    setPan({ x: 0, y: 0 });
+    panRef.current = { x: 0, y: 0 };
+    if (transformRef.current) {
+        transformRef.current.style.transform = `translate3d(0px, 0px, 0px) scale(1)`;
+    }
   }, [pdfAspectRatio]);
 
   useEffect(() => {
@@ -117,30 +121,44 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
   const updateZoom = (val: number) => {
       const newZoom = Math.min(Math.max(1, val), 4);
       setZoom(newZoom);
-      if (newZoom === 1) setPan({ x: 0, y: 0 });
+      if (newZoom === 1) {
+          panRef.current = { x: 0, y: 0 };
+          if (transformRef.current) {
+              transformRef.current.style.transition = 'transform 0.3s ease-out';
+              transformRef.current.style.transform = `translate3d(0px, 0px, 0px) scale(1)`;
+          }
+      } else {
+          if (transformRef.current) {
+              transformRef.current.style.transition = 'transform 0.3s ease-out';
+              transformRef.current.style.transform = `translate3d(${panRef.current.x}px, ${panRef.current.y}px, 0px) scale(${newZoom})`;
+          }
+      }
   };
 
   const handleStart = (clientX: number, clientY: number) => {
     if (zoom > 1) {
-        setIsDragging(true);
-        dragStartRef.current = { x: clientX, y: clientY };
-        panStartRef.current = { ...pan };
+        isDraggingRef.current = true;
+        setIsDraggingState(true);
+        dragStartRef.current = { x: clientX - panRef.current.x, y: clientY - panRef.current.y };
+        if (transformRef.current) {
+            transformRef.current.style.transition = 'none'; // Quitar transición para respuesta inmediata
+        }
     }
   };
 
   const handleMove = (clientX: number, clientY: number) => {
-    if (isDragging && zoom > 1) {
-        const dx = clientX - dragStartRef.current.x;
-        const dy = clientY - dragStartRef.current.y;
-        setPan({ 
-            x: panStartRef.current.x + dx, 
-            y: panStartRef.current.y + dy 
-        });
+    if (isDraggingRef.current && zoom > 1 && transformRef.current) {
+        const nx = clientX - dragStartRef.current.x;
+        const ny = clientY - dragStartRef.current.y;
+        panRef.current = { x: nx, y: ny };
+        // Usar translate3d para aceleración por hardware
+        transformRef.current.style.transform = `translate3d(${nx}px, ${ny}px, 0px) scale(${zoom})`;
     }
   };
 
   const handleEnd = () => {
-    setIsDragging(false);
+    isDraggingRef.current = false;
+    setIsDraggingState(false);
   };
 
   const handleShare = async () => {
@@ -194,7 +212,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
         onTouchStart={(e) => handleStart(e.touches[0].clientX, e.touches[0].clientY)}
         onTouchMove={(e) => handleMove(e.touches[0].clientX, e.touches[0].clientY)}
         onTouchEnd={handleEnd}
-        style={{ cursor: zoom > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
+        style={{ cursor: zoom > 1 ? (isDraggingState ? 'grabbing' : 'grab') : 'default' }}
       >
         {loading && (
           <div className="flex flex-col items-center gap-3">
@@ -205,11 +223,12 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
         
         {!loading && !error && bookDimensions.width > 0 && (
             <div 
-                // CRÍTICO: Eliminamos la transición mientras arrastramos para evitar parpadeo y lag
-                className={`${isDragging ? '' : 'transition-transform duration-300 ease-out'} flex items-center justify-center`}
+                ref={transformRef}
+                className="flex items-center justify-center will-change-transform"
                 style={{ 
-                    transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                    transformOrigin: 'center center'
+                    transform: `translate3d(0px, 0px, 0px) scale(${zoom})`,
+                    transformOrigin: 'center center',
+                    backfaceVisibility: 'hidden'
                 }}
             >
                 <HTMLFlipBook
@@ -237,7 +256,7 @@ const FlipbookViewer: React.FC<FlipbookViewerProps> = ({ magazine, onClose }) =>
                                 height={bookDimensions.height}
                                 priority={Math.abs(currentPageIndex - index) <= 1}
                                 onPageJump={(idx) => bookRef.current?.pageFlip().flip(idx)}
-                                zoom={zoom} // Pasar zoom para re-renderizado de calidad
+                                zoom={zoom}
                             />
                         </Page>
                     ))}
